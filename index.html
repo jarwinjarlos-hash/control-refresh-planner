@@ -6,6 +6,10 @@
   <title>Control System Tech Refresh Planner</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .action-btn { opacity: 0.6; transition: opacity 0.2s; }
+    .action-btn:hover { opacity: 1; }
+  </style>
 </head>
 <body class="bg-light">
 
@@ -23,7 +27,7 @@
         <div class="card border-primary p-3 bg-white shadow-sm">
           <h6 class="text-primary fw-bold">💾 Bulk Data Management & Backups (CSV Mode)</h6>
           <p class="small text-muted mb-3">
-            <strong>Bulk Workflow:</strong> Add your high-level Activities first -> Click <strong>Export Template CSV</strong> -> Open the file in Excel -> Populate your rows of Backbone Switches, Firewalls, and Controllers matching the Activity IDs -> Save and import the file back here!
+            Export your database layout to CSV, mass-edit or paste your Backbone Switches, Firewalls, and Controllers inside Excel, then upload the file back here to sync changes.
           </p>
           <div class="d-flex flex-wrap gap-3 align-items-center">
             <button onclick="exportToCSV()" class="btn btn-primary btn-sm">📥 Export Current Data to CSV</button>
@@ -122,8 +126,9 @@
   </div>
 
   <script>
-    const ACT_KEY = 'gh_refresh_acts_csv_v10';
-    const DEV_KEY = 'gh_refresh_devs_csv_v10';
+    // New storage signatures to instantly break down old browser caches
+    const ACT_KEY = 'gh_refresh_acts_v12_final';
+    const DEV_KEY = 'gh_refresh_devs_v12_final';
 
     let state = { activities: [], devices: [] };
 
@@ -183,8 +188,50 @@
       }
     };
 
+    // --- NEW EDIT & DELETE FUNCTIONS ---
+    window.deleteActivity = function(id) {
+      if(confirm("Delete this activity? All assigned hardware devices will be removed as well.")) {
+        state.activities = state.activities.filter(a => a.id !== id);
+        state.devices = state.devices.filter(d => d.activityId !== id);
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.editActivity = function(id) {
+      const act = state.activities.find(a => a.id === id);
+      if(!act) return;
+      const newName = prompt("Edit Activity Name:", act.name);
+      const newArea = prompt("Edit Physical Area:", act.area);
+      if(newName && newArea) {
+        act.name = newName.trim();
+        act.area = newArea.trim();
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.deleteDevice = function(id) {
+      if(confirm("Delete this hardware device from the checklist?")) {
+        state.devices = state.devices.filter(d => d.id !== id);
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.editDevice = function(id) {
+      const dev = state.devices.find(d => d.id === id);
+      if(!dev) return;
+      const newTag = prompt("Edit Hardware Tag Name:", dev.tag);
+      if(newTag) {
+        dev.tag = newTag.trim();
+        saveState();
+        renderApp();
+      }
+    };
+
     window.clearAllData = function() {
-      if(confirm("Wipe everything out? Make sure you exported a backup CSV first!")) {
+      if(confirm("Wipe out all records? Make sure you backed up your data via CSV export!")) {
         localStorage.removeItem(ACT_KEY);
         localStorage.removeItem(DEV_KEY);
         state = { activities: [], devices: [] };
@@ -192,22 +239,222 @@
       }
     };
 
-    // --- ENHANCED EXCEL COMPATIBLE CSV ENGINE ---
+    // --- CSV BULK UTILITY ENGINE ---
     window.exportToCSV = function() {
       let csvRows = [];
-      // CSV Column Definition
       csvRows.push("RowType,ID,Name_or_Tag,Area_or_DeviceType,TargetStart_or_ActivityID,TargetEnd_or_Status");
 
-      // Dump activities first
       state.activities.forEach(act => {
         csvRows.push(`ACTIVITY,${act.id},"${act.name}","${act.area}",${act.start},${act.end}`);
       });
 
-      // Dump hardware devices
       state.devices.forEach(dev => {
         csvRows.push(`DEVICE,${dev.id},"${dev.tag}","${dev.type}",${dev.activityId},${dev.status}`);
       });
 
-      // If empty layout, give sample rows to guide user editing in Excel
       if(state.activities.length === 0) {
-        csvRows.push(`ACTIVITY,1001,"Tech Refresh Cutover","
+        csvRows.push(`ACTIVITY,1001,"Tech Refresh Cutover","Control Room",2026-07-01,2026-07-15`);
+        csvRows.push(`DEVICE,2001,"Switch Bckbne-A","Backbone Network Switch",1001,Pending`);
+      }
+
+      const csvString = csvRows.join("\n");
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute("download", `Control_System_Planner_Data.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    window.importFromCSV = function() {
+      const fileInput = document.getElementById('csvFileInput');
+      if (!fileInput.files.length) {
+        alert("Please pick a valid database CSV file.");
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/);
+        
+        let newActivities = [];
+        let newDevices = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if(parts.length < 6) continue;
+
+          const rowType = parts[0].trim();
+          const id = parseInt(parts[1]) || Date.now() + i;
+          const nameOrTag = parts[2].replace(/^"|"$/g, '').trim();
+          const areaOrType = parts[3].replace(/^"|"$/g, '').trim();
+          const startOrActID = parts[4].trim();
+          const endOrStatus = parts[5].trim();
+
+          if (rowType === 'ACTIVITY') {
+            newActivities.push({ id: id, name: nameOrTag, area: areaOrType, start: startOrActID, end: endOrStatus });
+          } else if (rowType === 'DEVICE') {
+            newDevices.push({ id: id, tag: nameOrTag, type: areaOrType, activityId: parseInt(startOrActID), status: endOrStatus });
+          }
+        }
+
+        state.activities = newActivities;
+        state.devices = newDevices;
+        saveState();
+        renderApp();
+        alert("Database successfully synchronized and updated!");
+        fileInput.value = ''; 
+      };
+      reader.readAsText(file);
+    };
+
+    function renderApp() {
+      devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
+      state.activities.forEach(act => {
+        devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name} (ID: ${act.id})</option>`;
+      });
+
+      activityContainer.innerHTML = '';
+      if (state.activities.length === 0) {
+        activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet. Build one on the left pane or upload a sync CSV file.</p>';
+        typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data parameters detected.</td></tr>';
+        updateCharts({}, []);
+        return;
+      }
+
+      let areaPendingCounts = {};
+      let matrix = {};
+
+      state.activities.forEach(act => {
+        const actDevices = state.devices.filter(d => d.activityId === act.id);
+        const total = actDevices.length;
+        const completed = actDevices.filter(d => d.status === 'Complete').length;
+        const pending = total - completed;
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        if (!areaPendingCounts[act.area]) areaPendingCounts[act.area] = 0;
+        areaPendingCounts[act.area] += pending;
+
+        actDevices.forEach(dev => {
+          if (!matrix[act.area]) matrix[act.area] = {};
+          if (!matrix[act.area][dev.type]) {
+            matrix[act.area][dev.type] = { total: 0, completed: 0, pending: 0 };
+          }
+          matrix[act.area][dev.type].total += 1;
+          if (dev.status === 'Complete') {
+            matrix[act.area][dev.type].completed += 1;
+          } else {
+            matrix[act.area][dev.type].pending += 1;
+          }
+        });
+
+        let itemsHtml = '';
+        actDevices.forEach(dev => {
+          const checked = dev.status === 'Complete' ? 'checked' : '';
+          itemsHtml += `
+            <div class="d-flex justify-content-between align-items-center ms-3 my-1 border-bottom border-light pb-1">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" ${checked} onclick="toggleDevice(${dev.id})" id="dev-${dev.id}">
+                <label class="form-check-label small ${dev.status === 'Complete' ? 'text-decoration-line-through text-muted' : ''}" for="dev-${dev.id}">
+                  <span class="badge bg-secondary me-1" style="font-size:10px;">${dev.type}</span> <strong>${dev.tag}</strong>
+                </label>
+              </div>
+              <div>
+                <button onclick="editDevice(${dev.id})" class="btn btn-link btn-sm p-0 me-2 text-warning action-btn" title="Rename Tag">✏️</button>
+                <button onclick="deleteDevice(${dev.id})" class="btn btn-link btn-sm p-0 text-danger action-btn" title="Delete Device">❌</button>
+              </div>
+            </div>
+          `;
+        });
+
+        activityContainer.innerHTML += `
+          <div class="card mb-3 p-3 border-start border-3 border-primary shadow-sm">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <strong class="text-dark">[${act.area}] ${act.name}</strong>
+                <div class="text-muted small">Timeline: ${act.start} to ${act.end}</div>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <button onclick="editActivity(${act.id})" class="btn btn-outline-warning btn-sm py-0 px-1">Rename</button>
+                <button onclick="deleteActivity(${act.id})" class="btn btn-outline-danger btn-sm py-0 px-1">Delete</button>
+                <span class="badge bg-primary rounded-pill">${pct}% Done</span>
+              </div>
+            </div>
+            <div class="progress my-2" style="height: 6px;">
+              <div class="progress-bar bg-success" style="width: ${pct}%"></div>
+            </div>
+            <div class="mt-2">${itemsHtml || '<em class="text-muted small ms-3 d-block">No hardware added here yet.</em>'}</div>
+          </div>
+        `;
+      });
+
+      typeBreakdownTableBody.innerHTML = '';
+      Object.keys(matrix).forEach(area => {
+        Object.keys(matrix[area]).forEach(type => {
+          const dataRow = matrix[area][type];
+          const progressPct = dataRow.total > 0 ? Math.round((dataRow.completed / dataRow.total) * 100) : 0;
+          typeBreakdownTableBody.innerHTML += `
+            <tr>
+              <td><strong>${area}</strong></td>
+              <td><span class="text-secondary fw-semibold">${type}</span></td>
+              <td><span class="badge bg-dark">${dataRow.total}</span></td>
+              <td><span class="badge bg-success">${dataRow.completed}</span></td>
+              <td><span class="badge bg-danger">${dataRow.pending}</span></td>
+              <td>
+                <div class="d-flex align-items-center justify-content-center">
+                  <span class="me-2 fw-bold" style="min-width:35px;">${progressPct}%</span>
+                  <div class="progress w-100" style="height: 8px; max-width:100px;">
+                    <div class="progress-bar bg-success" style="width: ${progressPct}%"></div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      });
+
+      updateCharts(areaPendingCounts, state.devices);
+    }
+
+    function updateCharts(areaData, devices) {
+      const rCtx = document.getElementById('areaReportChart').getContext('2d');
+      if (reportChart) reportChart.destroy();
+      reportChart = new Chart(rCtx, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(areaData),
+          datasets: [{ label: 'Pending Hardware', data: Object.values(areaData), backgroundColor: '#dc3545' }]
+        },
+        options: { responsive: true }
+      });
+
+      const tCtx = document.getElementById('trendChart').getContext('2d');
+      if (trendChart) trendChart.destroy();
+      
+      const total = devices.length;
+      const done = devices.filter(d => d.status === 'Complete').length;
+      const actualPct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      trendChart = new Chart(tCtx, {
+        type: 'line',
+        data: {
+          labels: ['Start', 'Midpoint', 'Target'],
+          datasets: [
+            { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
+            { label: 'Your Actual Progress', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
+          ]
+        },
+        options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+      });
+    }
+
+    loadState();
+    renderApp();
+  </script>
+</body>
+</html>
