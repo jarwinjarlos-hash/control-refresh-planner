@@ -382,4 +382,94 @@
               <div class="d-flex align-items-center gap-2">
                 <button onclick="editActivity(${act.id})" class="btn btn-outline-warning btn-sm py-0 px-1">Rename</button>
                 <button onclick="deleteActivity(${act.id})" class="btn btn-outline-danger btn-sm py-0 px-1">Delete</button>
-                <span class="badge bg-primary
+                <span class="badge bg-primary rounded-pill">${pct}% Done</span>
+              </div>
+            </div>
+            <div class="progress my-2" style="height: 6px;">
+              <div class="progress-bar bg-success" style="width: ${pct}%"></div>
+            </div>
+            <div class="mt-2">${itemsHtml || '<em class="text-muted small ms-3 d-block">No hardware added here yet.</em>'}</div>
+          </div>
+        `;
+      });
+
+      // Render Matrix Table rows mapped directly out of nested Activity -> Area loops
+      typeBreakdownTableBody.innerHTML = '';
+      const activitiesKeys = Object.keys(matrix);
+      
+      if (activitiesKeys.length === 0) {
+        typeBreakdownTableBody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No devices added to activities yet.</td></tr>';
+      } else {
+        activitiesKeys.forEach(actName => {
+          Object.keys(matrix[actName]).forEach(areaName => {
+            Object.keys(matrix[actName][areaName]).forEach(type => {
+              const dataRow = matrix[actName][areaName][type];
+              const progressPct = dataRow.total > 0 ? Math.round((dataRow.completed / dataRow.total) * 100) : 0;
+              
+              typeBreakdownTableBody.innerHTML += `
+                <tr>
+                  <td><span class="text-primary fw-bold">${actName}</span></td>
+                  <td><strong>${areaName}</strong></td>
+                  <td><span class="text-secondary fw-semibold">${type}</span></td>
+                  <td><span class="badge bg-dark">${dataRow.total}</span></td>
+                  <td><span class="badge bg-success">${dataRow.completed}</span></td>
+                  <td><span class="badge bg-danger">${dataRow.pending}</span></td>
+                  <td>
+                    <div class="d-flex align-items-center justify-content-center">
+                      <span class="me-2 fw-bold" style="min-width:35px;">${progressPct}%</span>
+                      <div class="progress w-100" style="height: 8px; max-width:100px;">
+                        <div class="progress-bar bg-success" style="width: ${progressPct}%"></div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            });
+          });
+        });
+      }
+
+      updateCharts(areaPendingCounts, state.devices);
+    }
+
+    function updateCharts(areaData, devices) {
+      const rCtx = document.getElementById('areaReportChart').getContext('2d');
+      if (reportChart) reportChart.destroy();
+      
+      const labels = Object.keys(areaData);
+      const dataValues = Object.values(areaData);
+
+      reportChart = new Chart(rCtx, {
+        type: 'bar',
+        data: {
+          labels: labels.length ? labels : ['No Data'],
+          datasets: [{ label: 'Pending Hardware', data: dataValues.length ? dataValues : [0], backgroundColor: '#dc3545' }]
+        },
+        options: { responsive: true }
+      });
+
+      const tCtx = document.getElementById('trendChart').getContext('2d');
+      if (trendChart) trendChart.destroy();
+      
+      const total = devices.length;
+      const done = devices.filter(d => d.status === 'Complete').length;
+      const actualPct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      trendChart = new Chart(tCtx, {
+        type: 'line',
+        data: {
+          labels: ['Start', 'Midpoint', 'Target'],
+          datasets: [
+            { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
+            { label: 'Your Actual Progress', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
+          ]
+        },
+        options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+      });
+    }
+
+    loadState();
+    renderApp();
+  </script>
+</body>
+</html>
