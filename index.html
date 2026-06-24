@@ -130,12 +130,11 @@
   </div>
 
   <script>
-    const ACT_KEY = 'gh_refresh_final_acts_v20';
-    const DEV_KEY = 'gh_refresh_final_devs_v20';
+    // Robust, fully isolated fresh storage layout keys
+    const ACT_KEY = 'gh_refresh_final_acts_v35';
+    const DEV_KEY = 'gh_refresh_final_devs_v35';
 
     let state = { activities: [], devices: [] };
-    
-    // Default system types
     let baseTypes = ["Backbone Network Switch", "Firewall", "L2 Switch", "Controller", "I/O Module", "Server/HMI Workstation"];
 
     function loadState() {
@@ -144,14 +143,14 @@
         const storedDevs = localStorage.getItem(DEV_KEY);
         if(storedActs) state.activities = JSON.parse(storedActs);
         if(storedDevs) state.devices = JSON.parse(storedDevs);
-      } catch(e) { console.log(e); }
+      } catch(e) { console.error("Error loading state:", e); }
     }
 
     function saveState() {
       try {
         localStorage.setItem(ACT_KEY, JSON.stringify(state.activities));
         localStorage.setItem(DEV_KEY, JSON.stringify(state.devices));
-      } catch(e) { console.log(e); }
+      } catch(e) { console.error("Error saving state:", e); }
     }
 
     const activityForm = document.getElementById('activityForm');
@@ -174,60 +173,61 @@
     };
 
     function updateDeviceTypeDropdown() {
-      // Find all unique types currently inside our system data array
-      let currentUniqueTypes = new Set([...baseTypes, ...state.devices.map(d => d.type)]);
-      
-      // Save current selection
-      let selectedVal = devTypeSelect.value;
-      
-      devTypeSelect.innerHTML = '';
-      currentUniqueTypes.forEach(t => {
-        devTypeSelect.innerHTML += `<option value="${t}">${t}</option>`;
-      });
-      devTypeSelect.innerHTML += `<option value="__CUSTOM__">+ Create Custom Type...</option>`;
-      
-      // Restore select option position layout structure
-      if([...currentUniqueTypes, "__CUSTOM__"].includes(selectedVal)) {
-        devTypeSelect.value = selectedVal;
-      }
+      try {
+        let currentUniqueTypes = new Set([...baseTypes, ...state.devices.map(d => d.type || "Unknown")]);
+        let selectedVal = devTypeSelect.value;
+        
+        devTypeSelect.innerHTML = '';
+        currentUniqueTypes.forEach(t => {
+          devTypeSelect.innerHTML += `<option value="${t}">${t}</option>`;
+        });
+        devTypeSelect.innerHTML += `<option value="__CUSTOM__">+ Create Custom Type...</option>`;
+        
+        if([...currentUniqueTypes, "__CUSTOM__"].includes(selectedVal)) {
+          devTypeSelect.value = selectedVal;
+        }
+      } catch(e) { console.error(e); }
     }
 
     activityForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      state.activities.push({
-        id: Date.now(),
-        name: document.getElementById('actName').value.trim(),
-        area: document.getElementById('actArea').value.trim(),
-        start: document.getElementById('actStart').value,
-        end: document.getElementById('actEnd').value
-      });
-      activityForm.reset();
-      saveState();
-      renderApp();
+      try {
+        state.activities.push({
+          id: Date.now(),
+          name: document.getElementById('actName').value.trim(),
+          area: document.getElementById('actArea').value.trim(),
+          start: document.getElementById('actStart').value,
+          end: document.getElementById('actEnd').value
+        });
+        activityForm.reset();
+        saveState();
+        renderApp();
+      } catch(err) { alert("Form processing error. Check console logs."); }
     });
 
     deviceForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      
-      let finalType = devTypeSelect.value;
-      if (finalType === '__CUSTOM__') {
-        finalType = customDevTypeInput.value.trim();
-      }
+      try {
+        let finalType = devTypeSelect.value;
+        if (finalType === '__CUSTOM__') {
+          finalType = customDevTypeInput.value.trim();
+        }
 
-      state.devices.push({
-        id: Date.now(),
-        type: finalType,
-        tag: document.getElementById('devTag').value.trim(),
-        activityId: parseInt(devActivitySelect.value),
-        status: 'Pending'
-      });
-      
-      deviceForm.reset();
-      customDevTypeInput.style.display = 'none';
-      customDevTypeInput.required = false;
-      
-      saveState();
-      renderApp();
+        state.devices.push({
+          id: Date.now(),
+          type: finalType || "Unknown",
+          tag: document.getElementById('devTag').value.trim(),
+          activityId: parseInt(devActivitySelect.value),
+          status: 'Pending'
+        });
+        
+        deviceForm.reset();
+        customDevTypeInput.style.display = 'none';
+        customDevTypeInput.required = false;
+        
+        saveState();
+        renderApp();
+      } catch(err) { console.error(err); }
     });
 
     window.toggleDevice = function(id) {
@@ -358,50 +358,157 @@
     };
 
     function renderApp() {
-      updateDeviceTypeDropdown();
+      try {
+        updateDeviceTypeDropdown();
 
-      devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
-      state.activities.forEach(act => {
-        devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>`;
-      });
-
-      activityContainer.innerHTML = '';
-      if (state.activities.length === 0) {
-        activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet.</p>';
-        typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data records found.</td></tr>';
-        updateCharts({}, []);
-        return;
-      }
-
-      let areaPendingCounts = {};
-      let matrix = {};
-
-      state.activities.forEach(act => {
-        const actDevices = state.devices.filter(d => d.activityId === act.id);
-        const total = actDevices.length;
-        const completed = actDevices.filter(d => d.status === 'Complete').length;
-        const pending = total - completed;
-        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-        if (!areaPendingCounts[act.area]) areaPendingCounts[act.area] = 0;
-        areaPendingCounts[act.area] += pending;
-
-        actDevices.forEach(dev => {
-          if (!matrix[act.area]) matrix[act.area] = {};
-          if (!matrix[act.area][dev.type]) {
-            matrix[act.area][dev.type] = { total: 0, completed: 0, pending: 0 };
-          }
-          matrix[act.area][dev.type].total += 1;
-          if (dev.status === 'Complete') {
-            matrix[act.area][dev.type].completed += 1;
-          } else {
-            matrix[act.area][dev.type].pending += 1;
-          }
+        devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
+        state.activities.forEach(act => {
+          devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>`;
         });
 
-        let itemsHtml = '';
-        actDevices.forEach(dev => {
-          const checked = dev.status === 'Complete' ? 'checked' : '';
-          itemsHtml += `
-            <div class="d-flex justify-content-between align-items-center ms-3 my-1 border-bottom border-light pb-1">
-              <div class="form-check">
+        activityContainer.innerHTML = '';
+        if (state.activities.length === 0) {
+          activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet.</p>';
+          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data records found.</td></tr>';
+          updateCharts({}, []);
+          return;
+        }
+
+        let areaPendingCounts = {};
+        let matrix = {};
+
+        state.activities.forEach(act => {
+          const actDevices = state.devices.filter(d => d.activityId === act.id);
+          const total = actDevices.length;
+          const completed = actDevices.filter(d => d.status === 'Complete').length;
+          const pending = total - completed;
+          const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+          if (!areaPendingCounts[act.area]) areaPendingCounts[act.area] = 0;
+          areaPendingCounts[act.area] += pending;
+
+          actDevices.forEach(dev => {
+            if (!matrix[act.area]) matrix[act.area] = {};
+            if (!matrix[act.area][dev.type]) {
+              matrix[act.area][dev.type] = { total: 0, completed: 0, pending: 0 };
+            }
+            matrix[act.area][dev.type].total += 1;
+            if (dev.status === 'Complete') {
+              matrix[act.area][dev.type].completed += 1;
+            } else {
+              matrix[act.area][dev.type].pending += 1;
+            }
+          });
+
+          let itemsHtml = '';
+          actDevices.forEach(dev => {
+            const checked = dev.status === 'Complete' ? 'checked' : '';
+            itemsHtml += `
+              <div class="d-flex justify-content-between align-items-center ms-3 my-1 border-bottom border-light pb-1">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" ${checked} onclick="toggleDevice(${dev.id})" id="dev-${dev.id}">
+                  <label class="form-check-label small ${dev.status === 'Complete' ? 'text-decoration-line-through text-muted' : ''}" for="dev-${dev.id}">
+                    <span class="badge bg-secondary me-1" style="font-size:10px;">${dev.type}</span> <strong>${dev.tag}</strong>
+                  </label>
+                </div>
+                <div>
+                  <button onclick="editDevice(${dev.id})" class="btn btn-link btn-sm p-0 me-2 text-warning action-btn">✏️</button>
+                  <button onclick="deleteDevice(${dev.id})" class="btn btn-link btn-sm p-0 text-danger action-btn">❌</button>
+                </div>
+              </div>
+            `;
+          });
+
+          activityContainer.innerHTML += `
+            <div class="card mb-3 p-3 border-start border-3 border-primary shadow-sm">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <strong class="text-dark">[${act.area}] ${act.name}</strong>
+                  <div class="text-muted small">Timeline: ${act.start} to ${act.end}</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <button onclick="editActivity(${act.id})" class="btn btn-outline-warning btn-sm py-0 px-1">Rename</button>
+                  <button onclick="deleteActivity(${act.id})" class="btn btn-outline-danger btn-sm py-0 px-1">Delete</button>
+                  <span class="badge bg-primary rounded-pill">${pct}% Done</span>
+                </div>
+              </div>
+              <div class="progress my-2" style="height: 6px;">
+                <div class="progress-bar bg-success" style="width: ${pct}%"></div>
+              </div>
+              <div class="mt-2">${itemsHtml || '<em class="text-muted small ms-3 d-block">No hardware added here yet.</em>'}</div>
+            </div>
+          `;
+        });
+
+        typeBreakdownTableBody.innerHTML = '';
+        Object.keys(matrix).forEach(area => {
+          Object.keys(matrix[area]).forEach(type => {
+            const dataRow = matrix[area][type];
+            const progressPct = dataRow.total > 0 ? Math.round((dataRow.completed / dataRow.total) * 100) : 0;
+            typeBreakdownTableBody.innerHTML += `
+              <tr>
+                <td><strong>${area}</strong></td>
+                <td><span class="text-secondary fw-semibold">${type}</span></td>
+                <td><span class="badge bg-dark">${dataRow.total}</span></td>
+                <td><span class="badge bg-success">${dataRow.completed}</span></td>
+                <td><span class="badge bg-danger">${dataRow.pending}</span></td>
+                <td>
+                  <div class="d-flex align-items-center justify-content-center">
+                    <span class="me-2 fw-bold" style="min-width:35px;">${progressPct}%</span>
+                    <div class="progress w-100" style="height: 8px; max-width:100px;">
+                      <div class="progress-bar bg-success" style="width: ${progressPct}%"></div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            `;
+          });
+        });
+
+        updateCharts(areaPendingCounts, state.devices);
+      } catch(e) { console.error("Render error caught safely:", e); }
+    }
+
+    function updateCharts(areaData, devices) {
+      try {
+        const rCtx = document.getElementById('areaReportChart').getContext('2d');
+        if (reportChart) reportChart.destroy();
+        
+        const labels = Object.keys(areaData);
+        const dataValues = Object.values(areaData);
+
+        reportChart = new Chart(rCtx, {
+          type: 'bar',
+          data: {
+            labels: labels.length ? labels : ['No Data'],
+            datasets: [{ label: 'Pending Hardware', data: dataValues.length ? dataValues : [0], backgroundColor: '#dc3545' }]
+          },
+          options: { responsive: true }
+        });
+
+        const tCtx = document.getElementById('trendChart').getContext('2d');
+        if (trendChart) trendChart.destroy();
+        
+        const total = devices.length;
+        const done = devices.filter(d => d.status === 'Complete').length;
+        const actualPct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+        trendChart = new Chart(tCtx, {
+          type: 'line',
+          data: {
+            labels: ['Start', 'Midpoint', 'Target'],
+            datasets: [
+              { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
+              { label: 'Your Actual Progress', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
+            ]
+          },
+          options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+        });
+      } catch(chartErr) { console.error("Chart generation blocked safely:", chartErr); }
+    }
+
+    loadState();
+    renderApp();
+  </script>
+</body>
+</html>
