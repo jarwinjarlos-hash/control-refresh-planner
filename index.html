@@ -27,7 +27,7 @@
         <div class="card border-primary p-3 bg-white shadow-sm">
           <h6 class="text-primary fw-bold">💾 Bulk Data Management & Backups (CSV Mode)</h6>
           <p class="small text-muted mb-3">
-            Export your database layout to CSV, mass-edit or paste your Backbone Switches, Firewalls, and Controllers inside Excel, then upload the file back here to sync changes.
+            Export your database layout to CSV, mass-edit or paste your custom Device Types, Tags, and Controllers inside Excel, then upload the file back here to sync changes.
           </p>
           <div class="d-flex flex-wrap gap-3 align-items-center">
             <button onclick="exportToCSV()" class="btn btn-primary btn-sm">📥 Export Current Data to CSV</button>
@@ -97,14 +97,18 @@
           <form id="deviceForm">
             <div class="mb-2">
               <label class="small text-muted m-0">Device Type</label>
-              <select id="devType" class="form-select form-select-sm" required>
-                <option value="Backbone Network Switch">Backbone Network Switch</option>
-                <option value="Firewall">Firewall</option>
-                <option value="L2 Switch">L2 Switch</option>
-                <option value="Controller">Controller</option>
-                <option value="I/O Module">I/O Module</option>
-                <option value="Server/HMI Workstation">Server/HMI Workstation</option>
-              </select>
+              <div class="input-group input-group-sm">
+                <select id="devType" class="form-select" onchange="toggleCustomTypeInput()">
+                  <option value="Backbone Network Switch">Backbone Network Switch</option>
+                  <option value="Firewall">Firewall</option>
+                  <option value="L2 Switch">L2 Switch</option>
+                  <option value="Controller">Controller</option>
+                  <option value="I/O Module">I/O Module</option>
+                  <option value="Server/HMI Workstation">Server/HMI Workstation</option>
+                  <option value="__CUSTOM__">+ Create Custom Type...</option>
+                </select>
+                <input type="text" id="customDevType" class="form-control" placeholder="Type name (e.g., RTU)" style="display: none;">
+              </div>
             </div>
             <div class="mb-2"><input type="text" id="devTag" class="form-control form-control-sm" placeholder="Device Tag (e.g., Switch Bckbne-A)" required></div>
             <div class="mb-2">
@@ -126,10 +130,13 @@
   </div>
 
   <script>
-    const ACT_KEY = 'gh_refresh_final_acts_v15';
-    const DEV_KEY = 'gh_refresh_final_devs_v15';
+    const ACT_KEY = 'gh_refresh_final_acts_v20';
+    const DEV_KEY = 'gh_refresh_final_devs_v20';
 
     let state = { activities: [], devices: [] };
+    
+    // Default system types
+    let baseTypes = ["Backbone Network Switch", "Firewall", "L2 Switch", "Controller", "I/O Module", "Server/HMI Workstation"];
 
     function loadState() {
       try {
@@ -152,7 +159,38 @@
     const devActivitySelect = document.getElementById('devActivitySelect');
     const activityContainer = document.getElementById('activityContainer');
     const typeBreakdownTableBody = document.getElementById('typeBreakdownTableBody');
+    const devTypeSelect = document.getElementById('devType');
+    const customDevTypeInput = document.getElementById('customDevType');
     let trendChart, reportChart;
+
+    window.toggleCustomTypeInput = function() {
+      if (devTypeSelect.value === '__CUSTOM__') {
+        customDevTypeInput.style.display = 'block';
+        customDevTypeInput.required = true;
+      } else {
+        customDevTypeInput.style.display = 'none';
+        customDevTypeInput.required = false;
+      }
+    };
+
+    function updateDeviceTypeDropdown() {
+      // Find all unique types currently inside our system data array
+      let currentUniqueTypes = new Set([...baseTypes, ...state.devices.map(d => d.type)]);
+      
+      // Save current selection
+      let selectedVal = devTypeSelect.value;
+      
+      devTypeSelect.innerHTML = '';
+      currentUniqueTypes.forEach(t => {
+        devTypeSelect.innerHTML += `<option value="${t}">${t}</option>`;
+      });
+      devTypeSelect.innerHTML += `<option value="__CUSTOM__">+ Create Custom Type...</option>`;
+      
+      // Restore select option position layout structure
+      if([...currentUniqueTypes, "__CUSTOM__"].includes(selectedVal)) {
+        devTypeSelect.value = selectedVal;
+      }
+    }
 
     activityForm.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -170,14 +208,24 @@
 
     deviceForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      
+      let finalType = devTypeSelect.value;
+      if (finalType === '__CUSTOM__') {
+        finalType = customDevTypeInput.value.trim();
+      }
+
       state.devices.push({
         id: Date.now(),
-        type: document.getElementById('devType').value,
+        type: finalType,
         tag: document.getElementById('devTag').value.trim(),
         activityId: parseInt(devActivitySelect.value),
         status: 'Pending'
       });
+      
       deviceForm.reset();
+      customDevTypeInput.style.display = 'none';
+      customDevTypeInput.required = false;
+      
       saveState();
       renderApp();
     });
@@ -310,6 +358,8 @@
     };
 
     function renderApp() {
+      updateDeviceTypeDropdown();
+
       devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
       state.activities.forEach(act => {
         devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>`;
@@ -355,95 +405,3 @@
           itemsHtml += `
             <div class="d-flex justify-content-between align-items-center ms-3 my-1 border-bottom border-light pb-1">
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" ${checked} onclick="toggleDevice(${dev.id})" id="dev-${dev.id}">
-                <label class="form-check-label small ${dev.status === 'Complete' ? 'text-decoration-line-through text-muted' : ''}" for="dev-${dev.id}">
-                  <span class="badge bg-secondary me-1" style="font-size:10px;">${dev.type}</span> <strong>${dev.tag}</strong>
-                </label>
-              </div>
-              <div>
-                <button onclick="editDevice(${dev.id})" class="btn btn-link btn-sm p-0 me-2 text-warning action-btn">✏️</button>
-                <button onclick="deleteDevice(${dev.id})" class="btn btn-link btn-sm p-0 text-danger action-btn">❌</button>
-              </div>
-            </div>
-          `;
-        });
-
-        activityContainer.innerHTML += `
-          <div class="card mb-3 p-3 border-start border-3 border-primary shadow-sm">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <strong class="text-dark">[${act.area}] ${act.name}</strong>
-                <div class="text-muted small">Timeline: ${act.start} to ${act.end}</div>
-              </div>
-              <div class="d-flex align-items-center gap-2">
-                <button onclick="editActivity(${act.id})" class="btn btn-outline-warning btn-sm py-0 px-1">Rename</button>
-                <button onclick="deleteActivity(${act.id})" class="btn btn-outline-danger btn-sm py-0 px-1">Delete</button>
-                <span class="badge bg-primary rounded-pill">${pct}% Done</span>
-              </div>
-            </div>
-            <div class="progress my-2" style="height: 6px;">
-              <div class="progress-bar bg-success" style="width: ${pct}%"></div>
-            </div>
-            <div class="mt-2">${itemsHtml || '<em class="text-muted small ms-3 d-block">No hardware added here yet.</em>'}</div>
-          </div>
-        `;
-      });
-
-      typeBreakdownTableBody.innerHTML = '';
-      Object.keys(matrix).forEach(area => {
-        Object.keys(matrix[area]).forEach(type => {
-          const dataRow = matrix[area][type];
-          const progressPct = dataRow.total > 0 ? Math.round((dataRow.completed / dataRow.total) * 100) : 0;
-          typeBreakdownTableBody.innerHTML += `
-            <tr>
-              <td><strong>${area}</strong></td>
-              <td><span class="text-secondary fw-semibold">${type}</span></td>
-              <td><span class="badge bg-dark">${dataRow.total}</span></td>
-              <td><span class="badge bg-success">${dataRow.completed}</span></td>
-              <td><span class="badge bg-danger">${dataRow.pending}</span></td>
-              <td>
-                <div class="d-flex align-items-center justify-content-center">
-                  <span class="me-2 fw-bold" style="min-width:35px;">${progressPct}%</span>
-                  <div class="progress w-100" style="height: 8px; max-width:100px;">
-                    <div class="progress-bar bg-success" style="width: ${progressPct}%"></div>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          `;
-        });
-      });
-
-      updateCharts(areaPendingCounts, state.devices);
-    }
-
-    function updateCharts(areaData, devices) {
-      const rCtx = document.getElementById('areaReportChart').getContext('2d');
-      if (reportChart) reportChart.destroy();
-      
-      const labels = Object.keys(areaData);
-      const dataValues = Object.values(areaData);
-
-      reportChart = new Chart(rCtx, {
-        type: 'bar',
-        data: {
-          labels: labels.length ? labels : ['No Data'],
-          datasets: [{ label: 'Pending Hardware', data: dataValues.length ? dataValues : [0], backgroundColor: '#dc3545' }]
-        },
-        options: { responsive: true }
-      });
-
-      const tCtx = document.getElementById('trendChart').getContext('2d');
-      if (trendChart) trendChart.destroy();
-      
-      const total = devices.length;
-      const done = devices.filter(d => d.status === 'Complete').length;
-      const actualPct = total > 0 ? Math.round((done / total) * 100) : 0;
-
-      trendChart = new Chart(tCtx, {
-        type: 'line',
-        data: {
-          labels: ['Start', 'Midpoint', 'Target'],
-          datasets: [
-            { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
-            { label: 'Your Actual Progress', data:
