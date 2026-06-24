@@ -127,9 +127,9 @@
   </div>
 
   <script>
-    // Shift data layout tag signature key to verify clean application launch
-    const ACT_KEY = 'gh_refresh_final_acts_v30';
-    const DEV_KEY = 'gh_refresh_final_devs_v30';
+    // New pristine storage keys to isolate this layout from past cache issues
+    const ACT_KEY = 'gh_refresh_final_acts_v99';
+    const DEV_KEY = 'gh_refresh_final_devs_v99';
 
     let state = { activities: [], devices: [] };
 
@@ -139,7 +139,10 @@
         const storedDevs = localStorage.getItem(DEV_KEY);
         if(storedActs) state.activities = JSON.parse(storedActs);
         if(storedDevs) state.devices = JSON.parse(storedDevs);
-      } catch(e) { console.error("Load execution failed:", e); }
+      } catch(e) { 
+        console.error("Load execution failed, resetting slate:", e);
+        state = { activities: [], devices: [] };
+      }
     }
 
     function saveState() {
@@ -209,47 +212,4 @@
       const newArea = prompt("Edit Physical Area:", act.area);
       if(newName && newArea) {
         act.name = newName.trim();
-        act.area = newArea.trim();
-        saveState();
-        renderApp();
-      }
-    };
-
-    window.deleteDevice = function(id) {
-      if(confirm("Delete this hardware device from the checklist?")) {
-        state.devices = state.devices.filter(d => d.id !== id);
-        saveState();
-        renderApp();
-      }
-    };
-
-    window.editDevice = function(id) {
-      const dev = state.devices.find(d => d.id === id);
-      if(!dev) return;
-      const newTag = prompt("Edit Hardware Tag Name:", dev.tag);
-      if(newTag) {
-        dev.tag = newTag.trim();
-        saveState();
-        renderApp();
-      }
-    };
-
-    window.clearAllData = function() {
-      if(confirm("Wipe out all records?")) {
-        localStorage.removeItem(ACT_KEY);
-        localStorage.removeItem(DEV_KEY);
-        state = { activities: [], devices: [] };
-        renderApp();
-      }
-    };
-
-    window.exportToCSV = function() {
-      let csvRows = [];
-      csvRows.push("RowType,ID,Name_or_Tag,Area_or_DeviceType,TargetStart_or_ActivityID,TargetEnd_or_Status");
-
-      state.activities.forEach(act => {
-        csvRows.push(`ACTIVITY,${act.id},"${act.name}","${act.area}",${act.start},${act.end}`);
-      });
-
-      state.devices.forEach(dev => {
-        csvRows.push(`DEVICE,
+        act.area
