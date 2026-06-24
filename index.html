@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Control System Tech Refresh Planner</title>
+  
+  <link rel="icon" href="data:,">
+
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -127,9 +130,9 @@
   </div>
 
   <script>
-    // New pristine storage keys to isolate this layout from past cache issues
-    const ACT_KEY = 'gh_refresh_final_acts_v99';
-    const DEV_KEY = 'gh_refresh_final_devs_v99';
+    // New isolated clean storage key
+    const ACT_KEY = 'gh_refresh_final_acts_v100';
+    const DEV_KEY = 'gh_refresh_final_devs_v100';
 
     let state = { activities: [], devices: [] };
 
@@ -140,7 +143,7 @@
         if(storedActs) state.activities = JSON.parse(storedActs);
         if(storedDevs) state.devices = JSON.parse(storedDevs);
       } catch(e) { 
-        console.error("Load execution failed, resetting slate:", e);
+        console.error("Load execution failed:", e);
         state = { activities: [], devices: [] };
       }
     }
@@ -212,4 +215,268 @@
       const newArea = prompt("Edit Physical Area:", act.area);
       if(newName && newArea) {
         act.name = newName.trim();
-        act.area
+        act.area = newArea.trim();
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.deleteDevice = function(id) {
+      if(confirm("Delete this hardware device from the checklist?")) {
+        state.devices = state.devices.filter(d => d.id !== id);
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.editDevice = function(id) {
+      const dev = state.devices.find(d => d.id === id);
+      if(!dev) return;
+      const newTag = prompt("Edit Hardware Tag Name:", dev.tag);
+      if(newTag) {
+        dev.tag = newTag.trim();
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.clearAllData = function() {
+      if(confirm("Wipe out all records?")) {
+        localStorage.removeItem(ACT_KEY);
+        localStorage.removeItem(DEV_KEY);
+        state = { activities: [], devices: [] };
+        renderApp();
+      }
+    };
+
+    window.exportToCSV = function() {
+      let csvRows = [];
+      csvRows.push("RowType,ID,Name_or_Tag,Area_or_DeviceType,TargetStart_or_ActivityID,TargetEnd_or_Status");
+
+      state.activities.forEach(act => {
+        csvRows.push(`ACTIVITY,${act.id},"${act.name}","${act.area}",${act.start},${act.end}`);
+      });
+
+      state.devices.forEach(dev => {
+        csvRows.push(`DEVICE,${dev.id},"${dev.tag}","${dev.type}",${dev.activityId},${dev.status}`);
+      });
+
+      const csvString = csvRows.join("\n");
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute("download", `Project_Data_Backup.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    window.importFromCSV = function() {
+      const fileInput = document.getElementById('csvFileInput');
+      if (!fileInput.files.length) {
+        alert("Please pick a valid CSV file.");
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/);
+        
+        let newActivities = [];
+        let newDevices = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if(parts.length < 6) continue;
+
+          const rowType = parts[0].trim();
+          const id = parseInt(parts[1]) || Date.now() + i;
+          const nameOrTag = parts[2].replace(/^"|"$/g, '').trim();
+          const areaOrType = parts[3].replace(/^"|"$/g, '').trim();
+          const startOrActID = parts[4].trim();
+          const endOrStatus = parts[5].trim();
+
+          if (rowType === 'ACTIVITY') {
+            newActivities.push({ id: id, name: nameOrTag, area: areaOrType, start: startOrActID, end: endOrStatus });
+          } else if (rowType === 'DEVICE') {
+            newDevices.push({ id: id, tag: nameOrTag, type: areaOrType, activityId: parseInt(startOrActID), status: endOrStatus });
+          }
+        }
+
+        state.activities = newActivities;
+        state.devices = newDevices;
+        saveState();
+        renderApp();
+        alert("Sync Complete!");
+        fileInput.value = ''; 
+      };
+      reader.readAsText(file);
+    };
+
+    function renderApp() {
+      try {
+        devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
+        state.activities.forEach(act => {
+          devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>`;
+        });
+
+        activityContainer.innerHTML = '';
+        if (state.activities.length === 0) {
+          activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet.</p>';
+          typeBreakdownTableBody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No data records found.</td></tr>';
+          updateCharts({}, []);
+          return;
+        }
+
+        let areaPendingCounts = {};
+        let matrix = {}; 
+
+        state.activities.forEach(act => {
+          const actDevices = state.devices.filter(d => d.activityId === act.id);
+          const total = actDevices.length;
+          const completed = actDevices.filter(d => d.status === 'Complete').length;
+          const pending = total - completed;
+          const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+          if (!areaPendingCounts[act.area]) areaPendingCounts[act.area] = 0;
+          areaPendingCounts[act.area] += pending;
+
+          actDevices.forEach(dev => {
+            if (!matrix[act.name]) matrix[act.name] = {};
+            if (!matrix[act.name][act.area]) matrix[act.name][act.area] = {};
+            if (!matrix[act.name][act.area][dev.type]) {
+              matrix[act.name][act.area][dev.type] = { total: 0, completed: 0, pending: 0 };
+            }
+            
+            matrix[act.name][act.area][dev.type].total += 1;
+            if (dev.status === 'Complete') {
+              matrix[act.name][act.area][dev.type].completed += 1;
+            } else {
+              matrix[act.name][act.area][dev.type].pending += 1;
+            }
+          });
+
+          let itemsHtml = '';
+          actDevices.forEach(dev => {
+            const checked = dev.status === 'Complete' ? 'checked' : '';
+            itemsHtml += `
+              <div class="d-flex justify-content-between align-items-center ms-3 my-1 border-bottom border-light pb-1">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" ${checked} onclick="toggleDevice(${dev.id})" id="dev-${dev.id}">
+                  <label class="form-check-label small ${dev.status === 'Complete' ? 'text-decoration-line-through text-muted' : ''}" for="dev-${dev.id}">
+                    <span class="badge bg-secondary me-1" style="font-size:10px;">${dev.type}</span> <strong>${dev.tag}</strong>
+                  </label>
+                </div>
+                <div>
+                  <button onclick="editDevice(${dev.id})" class="btn btn-link btn-sm p-0 me-2 text-warning action-btn">✏️</button>
+                  <button onclick="deleteDevice(${dev.id})" class="btn btn-link btn-sm p-0 text-danger action-btn">❌</button>
+                </div>
+              </div>
+            `;
+          });
+
+          activityContainer.innerHTML += `
+            <div class="card mb-3 p-3 border-start border-3 border-primary shadow-sm">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <strong class="text-dark">[${act.area}] ${act.name}</strong>
+                  <div class="text-muted small">Timeline: ${act.start} to ${act.end}</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <button onclick="editActivity(${act.id})" class="btn btn-outline-warning btn-sm py-0 px-1">Rename</button>
+                  <button onclick="deleteActivity(${act.id})" class="btn btn-outline-danger btn-sm py-0 px-1">Delete</button>
+                  <span class="badge bg-primary rounded-pill">${pct}% Done</span>
+                </div>
+              </div>
+              <div class="progress my-2" style="height: 6px;">
+                <div class="progress-bar bg-success" style="width: ${pct}%"></div>
+              </div>
+              <div class="mt-2">${itemsHtml || '<em class="text-muted small ms-3 d-block">No hardware added here yet.</em>'}</div>
+            </div>
+          `;
+        });
+
+        typeBreakdownTableBody.innerHTML = '';
+        const activitiesKeys = Object.keys(matrix);
+        
+        activitiesKeys.forEach(actName => {
+          Object.keys(matrix[actName]).forEach(areaName => {
+            Object.keys(matrix[actName][areaName]).forEach(type => {
+              const dataRow = matrix[actName][areaName][type];
+              const progressPct = dataRow.total > 0 ? Math.round((dataRow.completed / dataRow.total) * 100) : 0;
+              
+              typeBreakdownTableBody.innerHTML += `
+                <tr>
+                  <td><span class="text-primary fw-bold">${actName}</span></td>
+                  <td><strong>${areaName}</strong></td>
+                  <td><span class="text-secondary fw-semibold">${type}</span></td>
+                  <td><span class="badge bg-dark">${dataRow.total}</span></td>
+                  <td><span class="badge bg-success">${dataRow.completed}</span></td>
+                  <td><span class="badge bg-danger">${dataRow.pending}</span></td>
+                  <td>
+                    <div class="d-flex align-items-center justify-content-center">
+                      <span class="me-2 fw-bold" style="min-width:35px;">${progressPct}%</span>
+                      <div class="progress w-100" style="height: 8px; max-width:100px;">
+                        <div class="progress-bar bg-success" style="width: ${progressPct}%"></div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            });
+          });
+        });
+
+        updateCharts(areaPendingCounts, state.devices);
+      } catch(err) {
+        console.error("Render loop execution blocked:", err);
+      }
+    }
+
+    function updateCharts(areaData, devices) {
+      try {
+        const rCtx = document.getElementById('areaReportChart').getContext('2d');
+        if (reportChart) reportChart.destroy();
+        
+        const labels = Object.keys(areaData);
+        const dataValues = Object.values(areaData);
+
+        reportChart = new Chart(rCtx, {
+          type: 'bar',
+          data: {
+            labels: labels.length ? labels : ['No Data'],
+            datasets: [{ label: 'Pending Hardware', data: dataValues.length ? dataValues : [0], backgroundColor: '#dc3545' }]
+          },
+          options: { responsive: true }
+        });
+
+        const tCtx = document.getElementById('trendChart').getContext('2d');
+        if (trendChart) trendChart.destroy();
+        
+        const total = devices.length;
+        const done = devices.filter(d => d.status === 'Complete').length;
+        const actualPct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+        trendChart = new Chart(tCtx, {
+          type: 'line',
+          data: {
+            labels: ['Start', 'Midpoint', 'Target'],
+            datasets: [
+              { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
+              { label: 'Your Actual Progress', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
+            ]
+          },
+          options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+        });
+      } catch(cErr) { console.error("Chart layout build bypass:", cErr); }
+    }
+
+    loadState();
+    renderApp();
+  </script>
+</body>
+</html>
