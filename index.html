@@ -126,22 +126,25 @@
   </div>
 
   <script>
-    // New storage signatures to instantly break down old browser caches
-    const ACT_KEY = 'gh_refresh_acts_v12_final';
-    const DEV_KEY = 'gh_refresh_devs_v12_final';
+    const ACT_KEY = 'gh_refresh_final_acts_v15';
+    const DEV_KEY = 'gh_refresh_final_devs_v15';
 
     let state = { activities: [], devices: [] };
 
     function loadState() {
-      const storedActs = localStorage.getItem(ACT_KEY);
-      const storedDevs = localStorage.getItem(DEV_KEY);
-      if(storedActs) state.activities = JSON.parse(storedActs);
-      if(storedDevs) state.devices = JSON.parse(storedDevs);
+      try {
+        const storedActs = localStorage.getItem(ACT_KEY);
+        const storedDevs = localStorage.getItem(DEV_KEY);
+        if(storedActs) state.activities = JSON.parse(storedActs);
+        if(storedDevs) state.devices = JSON.parse(storedDevs);
+      } catch(e) { console.log(e); }
     }
 
     function saveState() {
-      localStorage.setItem(ACT_KEY, JSON.stringify(state.activities));
-      localStorage.setItem(DEV_KEY, JSON.stringify(state.devices));
+      try {
+        localStorage.setItem(ACT_KEY, JSON.stringify(state.activities));
+        localStorage.setItem(DEV_KEY, JSON.stringify(state.devices));
+      } catch(e) { console.log(e); }
     }
 
     const activityForm = document.getElementById('activityForm');
@@ -188,7 +191,6 @@
       }
     };
 
-    // --- NEW EDIT & DELETE FUNCTIONS ---
     window.deleteActivity = function(id) {
       if(confirm("Delete this activity? All assigned hardware devices will be removed as well.")) {
         state.activities = state.activities.filter(a => a.id !== id);
@@ -231,7 +233,7 @@
     };
 
     window.clearAllData = function() {
-      if(confirm("Wipe out all records? Make sure you backed up your data via CSV export!")) {
+      if(confirm("Wipe out all records?")) {
         localStorage.removeItem(ACT_KEY);
         localStorage.removeItem(DEV_KEY);
         state = { activities: [], devices: [] };
@@ -239,7 +241,6 @@
       }
     };
 
-    // --- CSV BULK UTILITY ENGINE ---
     window.exportToCSV = function() {
       let csvRows = [];
       csvRows.push("RowType,ID,Name_or_Tag,Area_or_DeviceType,TargetStart_or_ActivityID,TargetEnd_or_Status");
@@ -252,16 +253,11 @@
         csvRows.push(`DEVICE,${dev.id},"${dev.tag}","${dev.type}",${dev.activityId},${dev.status}`);
       });
 
-      if(state.activities.length === 0) {
-        csvRows.push(`ACTIVITY,1001,"Tech Refresh Cutover","Control Room",2026-07-01,2026-07-15`);
-        csvRows.push(`DEVICE,2001,"Switch Bckbne-A","Backbone Network Switch",1001,Pending`);
-      }
-
       const csvString = csvRows.join("\n");
       const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.setAttribute("download", `Control_System_Planner_Data.csv`);
+      link.setAttribute("download", `Project_Data_Backup.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -270,7 +266,7 @@
     window.importFromCSV = function() {
       const fileInput = document.getElementById('csvFileInput');
       if (!fileInput.files.length) {
-        alert("Please pick a valid database CSV file.");
+        alert("Please pick a valid CSV file.");
         return;
       }
 
@@ -307,7 +303,7 @@
         state.devices = newDevices;
         saveState();
         renderApp();
-        alert("Database successfully synchronized and updated!");
+        alert("Sync Complete!");
         fileInput.value = ''; 
       };
       reader.readAsText(file);
@@ -316,13 +312,13 @@
     function renderApp() {
       devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
       state.activities.forEach(act => {
-        devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name} (ID: ${act.id})</option>`;
+        devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>`;
       });
 
       activityContainer.innerHTML = '';
       if (state.activities.length === 0) {
-        activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet. Build one on the left pane or upload a sync CSV file.</p>';
-        typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data parameters detected.</td></tr>';
+        activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet.</p>';
+        typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data records found.</td></tr>';
         updateCharts({}, []);
         return;
       }
@@ -365,8 +361,8 @@
                 </label>
               </div>
               <div>
-                <button onclick="editDevice(${dev.id})" class="btn btn-link btn-sm p-0 me-2 text-warning action-btn" title="Rename Tag">✏️</button>
-                <button onclick="deleteDevice(${dev.id})" class="btn btn-link btn-sm p-0 text-danger action-btn" title="Delete Device">❌</button>
+                <button onclick="editDevice(${dev.id})" class="btn btn-link btn-sm p-0 me-2 text-warning action-btn">✏️</button>
+                <button onclick="deleteDevice(${dev.id})" class="btn btn-link btn-sm p-0 text-danger action-btn">❌</button>
               </div>
             </div>
           `;
@@ -424,11 +420,15 @@
     function updateCharts(areaData, devices) {
       const rCtx = document.getElementById('areaReportChart').getContext('2d');
       if (reportChart) reportChart.destroy();
+      
+      const labels = Object.keys(areaData);
+      const dataValues = Object.values(areaData);
+
       reportChart = new Chart(rCtx, {
         type: 'bar',
         data: {
-          labels: Object.keys(areaData),
-          datasets: [{ label: 'Pending Hardware', data: Object.values(areaData), backgroundColor: '#dc3545' }]
+          labels: labels.length ? labels : ['No Data'],
+          datasets: [{ label: 'Pending Hardware', data: dataValues.length ? dataValues : [0], backgroundColor: '#dc3545' }]
         },
         options: { responsive: true }
       });
@@ -446,15 +446,4 @@
           labels: ['Start', 'Midpoint', 'Target'],
           datasets: [
             { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
-            { label: 'Your Actual Progress', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
-          ]
-        },
-        options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
-      });
-    }
-
-    loadState();
-    renderApp();
-  </script>
-</body>
-</html>
+            { label: 'Your Actual Progress', data:
