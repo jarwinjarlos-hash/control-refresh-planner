@@ -59,11 +59,12 @@
     <div class="row mb-4">
       <div class="col-12">
         <div class="card shadow-sm p-3">
-          <h5 class="card-title text-dark">📋 Hardware Type Breakdown Report (Per Area)</h5>
+          <h5 class="card-title text-dark">📋 Hardware Type Breakdown Report (Per Activity)</h5>
           <div class="table-responsive mt-2">
             <table class="table table-sm table-bordered table-striped align-middle text-center small mb-0">
               <thead class="table-secondary">
                 <tr>
+                  <th>Activity Name</th>
                   <th>Physical Area</th>
                   <th>Device Type</th>
                   <th>Total Count</th>
@@ -312,19 +313,19 @@
     function renderApp() {
       devActivitySelect.innerHTML = '<option value="">-- Select Activity --</option>';
       state.activities.forEach(act => {
-        devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>`;
+        devActivitySelect.innerHTML += `<option value="${act.id}">${act.area} - ${act.name}</option>';
       });
 
       activityContainer.innerHTML = '';
       if (state.activities.length === 0) {
         activityContainer.innerHTML = '<p class="text-muted text-center py-4">No activities mapped out yet.</p>';
-        typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data records found.</td></tr>';
+        typeBreakdownTableBody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No data records found.</td></tr>';
         updateCharts({}, []);
         return;
       }
 
       let areaPendingCounts = {};
-      let matrix = {};
+      let matrix = {}; // Main object mapping matrix for: ActivityName -> Area -> DeviceType
 
       state.activities.forEach(act => {
         const actDevices = state.devices.filter(d => d.activityId === act.id);
@@ -336,16 +337,19 @@
         if (!areaPendingCounts[act.area]) areaPendingCounts[act.area] = 0;
         areaPendingCounts[act.area] += pending;
 
+        // Group matrix sorting configuration path
         actDevices.forEach(dev => {
-          if (!matrix[act.area]) matrix[act.area] = {};
-          if (!matrix[act.area][dev.type]) {
-            matrix[act.area][dev.type] = { total: 0, completed: 0, pending: 0 };
+          if (!matrix[act.name]) matrix[act.name] = {};
+          if (!matrix[act.name][act.area]) matrix[act.name][act.area] = {};
+          if (!matrix[act.name][act.area][dev.type]) {
+            matrix[act.name][act.area][dev.type] = { total: 0, completed: 0, pending: 0 };
           }
-          matrix[act.area][dev.type].total += 1;
+          
+          matrix[act.name][act.area][dev.type].total += 1;
           if (dev.status === 'Complete') {
-            matrix[act.area][dev.type].completed += 1;
+            matrix[act.name][act.area][dev.type].completed += 1;
           } else {
-            matrix[act.area][dev.type].pending += 1;
+            matrix[act.name][act.area][dev.type].pending += 1;
           }
         });
 
@@ -378,83 +382,4 @@
               <div class="d-flex align-items-center gap-2">
                 <button onclick="editActivity(${act.id})" class="btn btn-outline-warning btn-sm py-0 px-1">Rename</button>
                 <button onclick="deleteActivity(${act.id})" class="btn btn-outline-danger btn-sm py-0 px-1">Delete</button>
-                <span class="badge bg-primary rounded-pill">${pct}% Done</span>
-              </div>
-            </div>
-            <div class="progress my-2" style="height: 6px;">
-              <div class="progress-bar bg-success" style="width: ${pct}%"></div>
-            </div>
-            <div class="mt-2">${itemsHtml || '<em class="text-muted small ms-3 d-block">No hardware added here yet.</em>'}</div>
-          </div>
-        `;
-      });
-
-      typeBreakdownTableBody.innerHTML = '';
-      Object.keys(matrix).forEach(area => {
-        Object.keys(matrix[area]).forEach(type => {
-          const dataRow = matrix[area][type];
-          const progressPct = dataRow.total > 0 ? Math.round((dataRow.completed / dataRow.total) * 100) : 0;
-          typeBreakdownTableBody.innerHTML += `
-            <tr>
-              <td><strong>${area}</strong></td>
-              <td><span class="text-secondary fw-semibold">${type}</span></td>
-              <td><span class="badge bg-dark">${dataRow.total}</span></td>
-              <td><span class="badge bg-success">${dataRow.completed}</span></td>
-              <td><span class="badge bg-danger">${dataRow.pending}</span></td>
-              <td>
-                <div class="d-flex align-items-center justify-content-center">
-                  <span class="me-2 fw-bold" style="min-width:35px;">${progressPct}%</span>
-                  <div class="progress w-100" style="height: 8px; max-width:100px;">
-                    <div class="progress-bar bg-success" style="width: ${progressPct}%"></div>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          `;
-        });
-      });
-
-      updateCharts(areaPendingCounts, state.devices);
-    }
-
-    function updateCharts(areaData, devices) {
-      const rCtx = document.getElementById('areaReportChart').getContext('2d');
-      if (reportChart) reportChart.destroy();
-      
-      const labels = Object.keys(areaData);
-      const dataValues = Object.values(areaData);
-
-      reportChart = new Chart(rCtx, {
-        type: 'bar',
-        data: {
-          labels: labels.length ? labels : ['No Data'],
-          datasets: [{ label: 'Pending Hardware', data: dataValues.length ? dataValues : [0], backgroundColor: '#dc3545' }]
-        },
-        options: { responsive: true }
-      });
-
-      const tCtx = document.getElementById('trendChart').getContext('2d');
-      if (trendChart) trendChart.destroy();
-      
-      const total = devices.length;
-      const done = devices.filter(d => d.status === 'Complete').length;
-      const actualPct = total > 0 ? Math.round((done / total) * 100) : 0;
-
-      trendChart = new Chart(tCtx, {
-        type: 'line',
-        data: {
-          labels: ['Start', 'Midpoint', 'Target'],
-          datasets: [
-            { label: 'Planned Target', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
-            { label: 'Your Actual Progress', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
-          ]
-        },
-        options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
-      });
-    }
-
-    loadState();
-    renderApp();
-  </script>
-</body>
-</html>
+                <span class="badge bg-primary
