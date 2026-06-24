@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Control System Tech Refresh Planner</title>
-  <link rel="icon" type="image/x-icon" href="/control-refresh-planner/favicon.ico">
+  
+  <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,=">
+
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -129,7 +131,6 @@
   </div>
 
   <script>
-    // Bumping to v200 to definitively clear out any older cached rendering blocks
     const ACT_KEY = 'gh_refresh_final_acts_v200';
     const DEV_KEY = 'gh_refresh_final_devs_v200';
 
@@ -404,7 +405,7 @@
           let actPending = actTotal - actCompleted;
           let actPct = actTotal > 0 ? Math.round((actCompleted / actTotal) * 100) : 0;
 
-          // Render Main Activity Summary Row
+          // Render Master Activity Summary Row
           typeBreakdownTableBody.innerHTML += `
             <tr class="table-summary-row">
               <td class="text-start text-primary text-uppercase">📋 ${actName} (Total)</td>
