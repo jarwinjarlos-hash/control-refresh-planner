@@ -13,7 +13,7 @@
     .area-header-clickable { cursor: pointer; transition: background-color 0.2s; }
     .area-header-clickable:hover { background-color: #f1f3f5 !important; }
     
-    /* Interactive Tree Grid Styling */
+    /* Tree Grid Styling Elements */
     .tree-row-area { background-color: #e8f4fd !important; font-weight: bold; cursor: pointer; }
     .tree-row-area:hover { background-color: #d0e8fc !important; }
     .tree-row-activity { background-color: #f8f9fa !important; font-weight: 500; cursor: pointer; }
@@ -27,7 +27,7 @@
 
   <nav class="navbar navbar-dark bg-dark mb-4">
     <div class="container-fluid">
-      <span class="navbar-brand mb-0 h1">🎛️ Control System Tech Refresh Planner (Hierarchical Asset Matrix)</span>
+      <span class="navbar-brand mb-0 h1">🎛️ Control System Tech Refresh Planner</span>
       <button onclick="clearAllData()" class="btn btn-danger btn-sm">⚠️ Reset App Data</button>
     </div>
   </nav>
@@ -177,12 +177,63 @@
   </div>
 
   <script>
-    // Using a clear storage version key to eliminate corrupt or old baseline blocks
-    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v900_stable';
+    // Stable fresh layout state parameters storage token key
+    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v950_stable';
 
     let state = { areas: [], devices: [], activities: [] };
     let collapsedTracker = {};
-    let tableRowCollapsedTracker = {}; 
+    let tableRowCollapsedTracker = {};
+
+    // --- PRIORITY UTILITIES MOVED TO TOP TO PREVENT STRATEGIC COMPILE CRASHES ---
+    window.clearAllData = function() {
+      if(confirm("Wipe clear the complete architecture?")) {
+        localStorage.removeItem(REFRESH_STORAGE_KEY);
+        state = { areas: [], devices: [], activities: [] };
+        tableRowCollapsedTracker = {};
+        renderApp();
+      }
+    };
+
+    window.exportToCSV = function() {
+      let csvRows = [];
+      csvRows.push("RowType,UniqueId,NameOrTag,ParentIdOrType,TargetStart,TargetEndOrStatus");
+      state.areas.forEach(a => csvRows.push(`AREA,${a.id},"${a.name}",,,`));
+      state.devices.forEach(d => csvRows.push(`DEVICE,${d.id},"${d.tag}",${d.areaId},"${d.type}",`));
+      state.activities.forEach(act => csvRows.push(`ACTIVITY,${act.id},"${act.name}",${act.deviceId},${act.start},${act.status}`));
+      const csvString = csvRows.join("\n");
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute("download", `Hierarchical_Asset_Data.csv`);
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    window.importFromCSV = function() {
+      const fileInput = document.getElementById('csvFileInput');
+      if(!fileInput.files.length) { alert("Select your edited .csv config file first."); return; }
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const text = e.target.result; const lines = text.split(/\r?\n/);
+          let newAreas = []; let newDevices = []; let newActivities = [];
+          for(let i = 1; i < lines.length; i++) {
+            if(!lines[i].trim()) continue;
+            const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+            if(parts.length < 6) continue;
+            const rowType = parts[0].trim(); const uid = parseInt(parts[1]);
+            const nameTag = parts[2].replace(/^"|"$/g, '').trim(); const parentId = parts[3].trim();
+            const tStart = parts[4].replace(/^"|"$/g, '').trim(); const statusVal = parts[5].trim();
+
+            if(rowType === 'AREA') newAreas.push({ id: uid, name: nameTag });
+            else if(rowType === 'DEVICE') newDevices.push({ id: uid, tag: nameTag, areaId: parseInt(parentId), type: tStart });
+            else if(rowType === 'ACTIVITY') newActivities.push({ id: uid, name: nameTag, deviceId: parseInt(parentId), start: tStart, status: statusVal || 'Pending' });
+          }
+          state.areas = newAreas; state.devices = newDevices; state.activities = newActivities;
+          saveState(); renderApp(); alert("Synchronization Complete!");
+        } catch(cErr) { alert("CSV file structure parse error."); console.error(cErr); }
+      };
+      reader.readAsText(fileInput.files[0]);
+    };
 
     function loadState() {
       try {
@@ -193,15 +244,13 @@
           state.devices = Array.isArray(parsed.devices) ? parsed.devices : [];
           state.activities = Array.isArray(parsed.activities) ? parsed.activities : [];
         }
-      } catch(e) { 
-        console.error("Cache reset verified:", e);
-      }
+      } catch(e) { console.error("Cache parameters mapping reset loop:", e); }
     }
 
     function saveState() {
       try {
         localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify(state));
-      } catch(e) { console.error("Storage write error:", e); }
+      } catch(e) { console.error("Storage compile error block:", e); }
     }
 
     const areaForm = document.getElementById('areaForm');
@@ -240,4 +289,313 @@
         id: Date.now(),
         deviceId: parseInt(actDeviceSelect.value),
         name: document.getElementById('actName').value.trim(),
-        start:
+        start: document.getElementById('actStart').value,
+        end: document.getElementById('actEnd').value,
+        status: 'Pending'
+      });
+      activityForm.reset();
+      saveState();
+      renderApp();
+    });
+
+    window.toggleActivityStatus = function(id) {
+      const target = state.activities.find(a => a.id === id);
+      if(target) {
+        target.status = target.status === 'Pending' ? 'Complete' : 'Pending';
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.toggleAllCollapsibles = function(shouldExpand) {
+      state.areas.forEach(area => { collapsedTracker[area.id] = !shouldExpand; });
+      renderApp();
+    };
+
+    window.toggleAreaCollapseState = function(id) {
+      collapsedTracker[id] = !collapsedTracker[id];
+      saveState();
+      renderApp();
+    };
+
+    window.toggleTableRowCollapse = function(rowKey) {
+      tableRowCollapsedTracker[rowKey] = !tableRowCollapsedTracker[rowKey];
+      renderApp();
+    };
+
+    window.editAreaItem = function(id) {
+      const area = state.areas.find(a => a.id === id);
+      if(!area) return;
+      const newName = prompt("Rename Physical Area Location:", area.name);
+      if(newName && newName.trim()) { area.name = newName.trim(); saveState(); renderApp(); }
+    };
+
+    window.editDeviceItem = function(id) {
+      const dev = state.devices.find(d => d.id === id);
+      if(!dev) return;
+      const newTag = prompt("Rename Device Tag Name:", dev.tag);
+      if(!newTag || !newTag.trim()) return;
+
+      let areaOptions = state.areas.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
+      const areaChoice = prompt(`Reassign Area for [${dev.tag}]?\n\nAvailable Areas:\n${areaOptions}`);
+      if(areaChoice && parseInt(areaChoice) > 0 && parseInt(areaChoice) <= state.areas.length) {
+        dev.areaId = state.areas[parseInt(areaChoice) - 1].id;
+      }
+      dev.tag = newTag.trim();
+      saveState();
+      renderApp();
+    };
+
+    window.editActivityTask = function(id) {
+      const act = state.activities.find(a => a.id === id);
+      if(!act) return;
+      const newName = prompt("Rename Activity Work Title:", act.name);
+      if(!newName || !newName.trim()) return;
+
+      act.name = newName.trim();
+      saveState();
+      renderApp();
+    };
+
+    window.deleteAreaItem = function(id) {
+      if(confirm("Delete this Area? All devices and tasks inside will be deleted.")) {
+        const deviceIdsInArea = state.devices.filter(d => d.areaId === id).map(d => d.id);
+        state.areas = state.areas.filter(a => a.id !== id);
+        state.devices = state.devices.filter(d => d.areaId !== id);
+        state.activities = state.activities.filter(act => !deviceIdsInArea.includes(act.deviceId));
+        saveState(); renderApp();
+      }
+    };
+
+    window.deleteDeviceItem = function(id) {
+      if(confirm("Remove this device tag?")) {
+        state.devices = state.devices.filter(d => d.id !== id);
+        state.activities = state.activities.filter(act => act.deviceId !== id);
+        saveState(); renderApp();
+      }
+    };
+
+    window.deleteActivityTask = function(id) {
+      if(confirm("Remove this activity task?")) {
+        state.activities = state.activities.filter(a => a.id !== id);
+        saveState(); renderApp();
+      }
+    };
+
+    function renderApp() {
+      try {
+        devAreaSelect.innerHTML = '<option value="">-- Select Area --</option>';
+        state.areas.forEach(a => { devAreaSelect.innerHTML += `<option value="${a.id}">${a.name}</option>`; });
+
+        actDeviceSelect.innerHTML = '<option value="">-- Select Device --</option>';
+        state.devices.forEach(d => {
+          const aCtx = state.areas.find(a => a.id === d.areaId);
+          actDeviceSelect.innerHTML += `<option value="${d.id}">[${aCtx ? aCtx.name : 'N/A'}] ${d.tag} (${d.type})</option>`;
+        });
+
+        assetMasterAccordion.innerHTML = '';
+        typeBreakdownTableBody.innerHTML = '';
+
+        if(state.areas.length === 0) {
+          assetMasterAccordion.innerHTML = '<p class="text-muted text-center py-4">Create an Area Location to unlock the workspace.</p>';
+          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No structural logs recorded.</td></tr>';
+          updateCharts({}, 0, 0); return;
+        }
+
+        let areaPendingCounts = {};
+        let totalGlobalTasks = 0; let totalGlobalCompletedTasks = 0;
+
+        state.areas.forEach(area => {
+          areaPendingCounts[area.name] = 0;
+          const areaDevices = state.devices.filter(d => d.areaId === area.id);
+          
+          let totalAreaTasks = 0; let completedAreaTasks = 0;
+          let deviceHtmlCollection = '';
+          let areaTreeData = {};
+
+          areaDevices.forEach(dev => {
+            const devActivities = state.activities.filter(act => act.deviceId === dev.id);
+            let activityTasksHtml = '';
+
+            devActivities.forEach(act => {
+              totalGlobalTasks++; totalAreaTasks++;
+              const isDone = act.status === 'Complete';
+              if(isDone) completedAreaTasks++;
+              else areaPendingCounts[area.name]++;
+
+              if(!areaTreeData[act.name]) areaTreeData[act.name] = { total: 0, completed: 0, devices: {} };
+              areaTreeData[act.name].total += 1;
+              if(isDone) areaTreeData[act.name].completed += 1;
+
+              if(!areaTreeData[act.name].devices[dev.type]) areaTreeData[act.name].devices[dev.type] = { total: 0, completed: 0 };
+              areaTreeData[act.name].devices[dev.type].total += 1;
+              if(isDone) areaTreeData[act.name].devices[dev.type].completed += 1;
+
+              activityTasksHtml += `
+                <div class="d-flex justify-content-between align-items-center ms-4 ps-2 my-1 bg-white border rounded p-1 small">
+                  <div>
+                    <input class="form-check-input me-2" type="checkbox" ${isDone ? 'checked' : ''} onclick="toggleActivityStatus(${act.id})" id="act-chk-${act.id}">
+                    <label class="${isDone ? 'text-decoration-line-through text-muted' : 'fw-bold'}" for="act-chk-${act.id}">${act.name}</label>
+                    <span class="text-muted mx-2">| Window: <strong>${act.start}</strong> to <strong>${act.end}</strong></span>
+                  </div>
+                  <div>
+                    <button onclick="editActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2">✏️</button>
+                    <button onclick="deleteActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none">❌</button>
+                  </div>
+                </div>
+              `;
+            });
+
+            deviceHtmlCollection += `
+              <div class="border rounded p-2 my-2 bg-light">
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1">
+                  <div><span class="badge bg-secondary me-2">${dev.type}</span><strong class="text-dark">${dev.tag}</strong></div>
+                  <div>
+                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2" style="font-size:12px;">✏️</button>
+                    <button onclick="deleteDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none" style="font-size:12px;">❌</button>
+                  </div>
+                </div>
+                <div class="mt-1">${activityTasksHtml || '<em class="text-muted d-block small ms-3">No tasks mapped.</em>'}</div>
+              </div>
+            `;
+          });
+
+          // --- MASTER WORKSPACE RENDERING ---
+          const areaProgressPct = totalAreaTasks > 0 ? Math.round((completedAreaTasks / totalAreaTasks) * 100) : 0;
+          const isAreaCollapsed = collapsedTracker[area.id] === true;
+
+          assetMasterAccordion.innerHTML += `
+            <div class="card mb-2 shadow-sm border-start border-3 border-primary">
+              <div class="card-header bg-white p-2 d-flex justify-content-between align-items-center area-header-clickable" onclick="toggleAreaCollapseState(${area.id})">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="text-secondary small" style="min-width:15px;">${isAreaCollapsed ? '▶' : '▼'}</span>
+                  <h6 class="m-0 text-dark fw-bold">🏢 Area Location: ${area.name}</h6>
+                </div>
+                <div class="d-flex align-items-center gap-3" onclick="event.stopPropagation();">
+                  <div class="d-flex align-items-center gap-1 bg-light border px-2 py-1 rounded shadow-sm" style="min-width: 130px;">
+                    <span class="small fw-bold text-primary" style="font-size: 11px;">${areaProgressPct}% Done</span>
+                    <div class="progress w-100" style="height: 6px;"><div class="progress-bar bg-success" style="width: ${areaProgressPct}%"></div></div>
+                  </div>
+                  <div>
+                    <button onclick="editAreaItem(${area.id})" class="btn btn-xs btn-outline-warning py-0 px-1 font-monospace" style="font-size:11px;">Rename</button>
+                    <button onclick="deleteAreaItem(${area.id})" class="btn btn-xs btn-danger py-0 px-1 font-monospace" style="font-size:11px;">Delete</button>
+                  </div>
+                </div>
+              </div>
+              <div id="collapse-body-${area.id}" class="card-body p-3 bg-white border-top accordion-collapse collapse ${isAreaCollapsed ? '' : 'show'}">
+                <div>${deviceHtmlCollection || '<em class="text-muted small d-block py-2">No hardware device assets registered to this location.</em>'}</div>
+              </div>
+            </div>
+          `;
+
+          // --- COLLAPSIBLE TREE-GRID SPREADSHEET MATRIX GENERATOR ---
+          const areaRowKey = `table-area-${area.id}`;
+          const isTableAreaCollapsed = tableRowCollapsedTracker[areaRowKey] === true;
+
+          typeBreakdownTableBody.innerHTML += `
+            <tr class="tree-row-area" onclick="toggleTableRowCollapse('${areaRowKey}')">
+              <td class="text-start"><span class="tree-node-toggle">${isTableAreaCollapsed ? '▶' : '▼'}</span> 🏢 Area Location: ${area.name}</td>
+              <td><span class="badge bg-primary">Location Level</span></td>
+              <td>${totalAreaTasks}</td>
+              <td>${completedAreaTasks}</td>
+              <td>${totalAreaTasks - completedAreaTasks}</td>
+              <td>
+                <div class="d-flex align-items-center justify-content-center">
+                  <span class="me-2 fw-bold">${areaProgressPct}%</span>
+                  <div class="progress w-100" style="height: 6px; max-width: 80px;"><div class="progress-bar bg-primary" style="width: ${areaProgressPct}%"></div></div>
+                </div>
+              </td>
+            </tr>
+          `;
+
+          Object.keys(areaTreeData).forEach((actName, aIdx) => {
+            const actData = areaTreeData[actName];
+            const actProgressPct = actData.total > 0 ? Math.round((actData.completed / actData.total) * 100) : 0;
+            const actRowKey = `table-area-${area.id}-act-${aIdx}`;
+            const isTableActCollapsed = tableRowCollapsedTracker[actRowKey] === true;
+            const hideActivityClass = isTableAreaCollapsed ? 'hidden-tree-row' : '';
+
+            typeBreakdownTableBody.innerHTML += `
+              <tr class="tree-row-activity ${hideActivityClass}" onclick="toggleTableRowCollapse('${actRowKey}')">
+                <td class="text-start ps-4"><span>↳ </span><span class="tree-node-toggle">${isTableActCollapsed ? '▶' : '▼'}</span> 📋 Scope: ${actName}</td>
+                <td><span class="badge bg-info text-white">Activity Scope</span></td>
+                <td>${actData.total}</td>
+                <td>${actData.completed}</td>
+                <td>${actData.total - actData.completed}</td>
+                <td>
+                  <div class="d-flex align-items-center justify-content-center">
+                    <span class="me-2 fw-bold text-info">${actProgressPct}%</span>
+                    <div class="progress w-100" style="height: 6px; max-width: 80px;"><div class="progress-bar bg-info" style="width: ${actProgressPct}%"></div></div>
+                  </div>
+                </td>
+              </tr>
+            `;
+
+            Object.keys(actData.devices).forEach(devTypeKey => {
+              const devData = actData.devices[devTypeKey];
+              const devProgressPct = devData.total > 0 ? Math.round((devData.completed / devData.total) * 100) : 0;
+              const hideDeviceClass = (isTableAreaCollapsed || isTableActCollapsed) ? 'hidden-tree-row' : '';
+
+              typeBreakdownTableBody.innerHTML += `
+                <tr class="tree-row-device ${hideDeviceClass}">
+                  <td class="text-start ps-5 text-muted">↳ 🎛️ Asset Type: ${devTypeKey}</td>
+                  <td><span class="badge bg-secondary">Hardware Type</span></td>
+                  <td>${devData.total}</td>
+                  <td>${devData.completed}</td>
+                  <td>${devData.total - devData.completed}</td>
+                  <td>
+                    <div class="d-flex align-items-center justify-content-center">
+                      <span class="me-2 text-muted" style="font-size:11px;">${devProgressPct}%</span>
+                      <div class="progress w-100" style="height: 5px; max-width: 70px;"><div class="progress-bar bg-success" style="width: ${devProgressPct}%"></div></div>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            });
+          });
+          
+          totalGlobalCompletedTasks += completedAreaTasks;
+        });
+
+        updateCharts(areaPendingCounts, totalGlobalTasks, totalGlobalCompletedTasks);
+      } catch(renderError) { console.error("Matrix compilation caught seamlessly:", renderError); }
+    }
+
+    function updateCharts(areaData, total, completed) {
+      try {
+        const rCtx = document.getElementById('areaReportChart').getContext('2d');
+        if(reportChart) reportChart.destroy();
+        reportChart = new Chart(rCtx, {
+          type: 'bar',
+          data: {
+            labels: Object.keys(areaData),
+            datasets: [{ label: 'Outstanding Activity Tasks', data: Object.values(areaData), backgroundColor: '#dc3545' }]
+          },
+          options: { responsive: true }
+        });
+
+        const tCtx = document.getElementById('trendChart').getContext('2d');
+        if(trendChart) trendChart.destroy();
+        
+        const actualPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        trendChart = new Chart(tCtx, {
+          type: 'line',
+          data: {
+            labels: ['Start Layout', 'Midpoint Plan', 'Target Execution'],
+            datasets: [
+              { label: 'Target Strategy Path', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
+              { label: 'Real S-Curve Status', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
+            ]
+          },
+          options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+        });
+      } catch(e) { console.error(e); }
+    }
+
+    // Baseline boot initializer
+    loadState();
+    renderApp();
+  </script>
+</body>
+</html>
