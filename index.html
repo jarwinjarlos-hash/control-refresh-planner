@@ -166,8 +166,8 @@
   </div>
 
   <script>
-    // Isolated stable signature key tracking configuration profile
-    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v500_stable';
+    // Fully clean baseline tracking key signatures
+    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v600_final';
 
     let state = { areas: [], devices: [], activities: [] };
     let collapsedTracker = {};
@@ -177,11 +177,17 @@
         const data = localStorage.getItem(REFRESH_STORAGE_KEY);
         if(data) {
           const parsed = JSON.parse(data);
-          state.areas = parsed.areas || [];
-          state.devices = parsed.devices || [];
-          state.activities = parsed.activities || [];
+          state.areas = Array.isArray(parsed.areas) ? parsed.areas : [];
+          state.devices = Array.isArray(parsed.devices) ? parsed.devices : [];
+          state.activities = Array.isArray(parsed.activities) ? parsed.activities : [];
+        } else {
+          // Failsafe initialization path if empty domain detected
+          state = { areas: [], devices: [], activities: [] };
         }
-      } catch(e) { console.error("Load execution failed:", e); }
+      } catch(e) { 
+        console.error("Failsafe loaded cleanly:", e);
+        state = { areas: [], devices: [], activities: [] };
+      }
     }
 
     function saveState() {
@@ -201,47 +207,41 @@
 
     areaForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      try {
-        state.areas.push({
-          id: Date.now(),
-          name: document.getElementById('areaNameInput').value.trim()
-        });
-        areaForm.reset();
-        saveState();
-        renderApp();
-      } catch(err) { console.error(err); }
+      state.areas.push({
+        id: Date.now(),
+        name: document.getElementById('areaNameInput').value.trim()
+      });
+      areaForm.reset();
+      saveState();
+      renderApp();
     });
 
     deviceForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      try {
-        state.devices.push({
-          id: Date.now(),
-          areaId: parseInt(devAreaSelect.value),
-          type: document.getElementById('devType').value,
-          tag: document.getElementById('devTag').value.trim()
-        });
-        deviceForm.reset();
-        saveState();
-        renderApp();
-      } catch(err) { console.error(err); }
+      state.devices.push({
+        id: Date.now(),
+        areaId: parseInt(devAreaSelect.value),
+        type: document.getElementById('devType').value,
+        tag: document.getElementById('devTag').value.trim()
+      });
+      deviceForm.reset();
+      saveState();
+      renderApp();
     });
 
     activityForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      try {
-        state.activities.push({
-          id: Date.now(),
-          deviceId: parseInt(actDeviceSelect.value),
-          name: document.getElementById('actName').value.trim(),
-          start: document.getElementById('actStart').value,
-          end: document.getElementById('actEnd').value,
-          status: 'Pending'
-        });
-        activityForm.reset();
-        saveState();
-        renderApp();
-      } catch(err) { console.error(err); }
+      state.activities.push({
+        id: Date.now(),
+        deviceId: parseInt(actDeviceSelect.value),
+        name: document.getElementById('actName').value.trim(),
+        start: document.getElementById('actStart').value,
+        end: document.getElementById('actEnd').value,
+        status: 'Pending'
+      });
+      activityForm.reset();
+      saveState();
+      renderApp();
     });
 
     window.toggleActivityStatus = function(id) {
@@ -262,7 +262,6 @@
 
     window.toggleAreaCollapseState = function(id) {
       collapsedTracker[id] = !collapsedTracker[id];
-      saveState();
       const targetCollapseDiv = document.getElementById(`collapse-body-${id}`);
       const targetHeaderChevron = document.getElementById(`chevron-${id}`);
       if(targetCollapseDiv) {
@@ -499,114 +498,4 @@
                     <strong class="text-dark">${dev.tag}</strong>
                   </div>
                   <div>
-                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2" style="font-size:12px;">✏️ Modify</button>
-                    <button onclick="deleteDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none" style="font-size:12px;">❌</button>
-                  </div>
-                </div>
-                <div class="mt-1">${activityTasksHtml || '<em class="text-muted d-block small ms-3">No activity steps assigned.</em>'}</div>
-              </div>
-            `;
-          });
-
-          // Core Failsafe Calculation Wrapper: Blocks division-by-zero layout freezing instantly
-          const areaProgressPct = totalAreaTasks > 0 ? Math.round((completedAreaTasks / totalAreaTasks) * 100) : 0;
-          const isCollapsed = collapsedTracker[area.id] === true;
-
-          assetMasterAccordion.innerHTML += `
-            <div class="card mb-2 shadow-sm border-start border-3 border-primary">
-              <div class="card-header bg-white p-2 d-flex justify-content-between align-items-center area-header-clickable" onclick="toggleAreaCollapseState(${area.id})">
-                <div class="d-flex align-items-center gap-2">
-                  <span id="chevron-${area.id}" class="text-secondary small" style="min-width:15px;">${isCollapsed ? '▶' : '▼'}</span>
-                  <h6 class="m-0 text-dark fw-bold">🏢 Area Location: ${area.name}</h6>
-                </div>
-                <div class="d-flex align-items-center gap-3" onclick="event.stopPropagation();">
-                  <div class="d-flex align-items-center gap-1 bg-light border px-2 py-1 rounded shadow-sm" style="min-width: 140px;">
-                    <span class="small fw-bold text-primary" style="font-size: 11px;">${areaProgressPct}% Done</span>
-                    <div class="progress w-100" style="height: 6px;">
-                      <div class="progress-bar bg-success" style="width: ${areaProgressPct}%"></div>
-                    </div>
-                  </div>
-                  <div>
-                    <button onclick="editAreaItem(${area.id})" class="btn btn-xs btn-outline-warning py-0 px-1 font-monospace" style="font-size:11px;">Rename</button>
-                    <button onclick="deleteAreaItem(${area.id})" class="btn btn-xs btn-danger py-0 px-1 font-monospace" style="font-size:11px;">Delete</button>
-                  </div>
-                </div>
-              </div>
-              <div id="collapse-body-${area.id}" class="card-body p-3 bg-white border-top accordion-collapse collapse ${isCollapsed ? '' : 'show'}">
-                <div>${deviceHtmlCollection || '<em class="text-muted small d-block py-2">No hardware device assets registered to this location.</em>'}</div>
-              </div>
-            </div>
-          `;
-        });
-
-        typeBreakdownTableBody.innerHTML = '';
-        const reportingAreas = Object.keys(matrixReport);
-        if(reportingAreas.length === 0) {
-          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Assign tasks to build metric graphs.</td></tr>';
-        } else {
-          reportingAreas.forEach(areaName => {
-            Object.keys(matrixReport[areaName]).forEach(type => {
-              const currentObj = matrixReport[areaName][type];
-              const progress = currentObj.total > 0 ? Math.round((currentObj.completed / currentObj.total) * 100) : 0;
-              typeBreakdownTableBody.innerHTML += `
-                <tr>
-                  <td><strong>${areaName}</strong></td>
-                  <td><span class="text-secondary fw-semibold">${type}</span></td>
-                  <td><span class="badge bg-dark">${currentObj.total}</span></td>
-                  <td><span class="badge bg-success">${currentObj.completed}</span></td>
-                  <td><span class="badge bg-danger">${currentObj.pending}</span></td>
-                  <td>
-                    <div class="d-flex align-items-center justify-content-center">
-                      <span class="me-2 fw-bold" style="min-width:35px;">${progress}%</span>
-                      <div class="progress w-100" style="height: 8px; max-width:100px;">
-                        <div class="progress-bar bg-success" style="width: ${progress}%"></div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              `;
-            });
-          });
-        }
-
-        updateCharts(areaPendingCounts, totalGlobalTasks, totalGlobalCompletedTasks);
-      } catch(err) { console.error("Render error caught seamlessly:", err); }
-    }
-
-    function updateCharts(areaData, total, completed) {
-      try {
-        const rCtx = document.getElementById('areaReportChart').getContext('2d');
-        if(reportChart) reportChart.destroy();
-        reportChart = new Chart(rCtx, {
-          type: 'bar',
-          data: {
-            labels: Object.keys(areaData),
-            datasets: [{ label: 'Outstanding Activity Tasks', data: Object.values(areaData), backgroundColor: '#dc3545' }]
-          },
-          options: { responsive: true }
-        });
-
-        const tCtx = document.getElementById('trendChart').getContext('2d');
-        if(trendChart) trendChart.destroy();
-        
-        const actualPct = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-        trendChart = new Chart(tCtx, {
-          type: 'line',
-          data: {
-            labels: ['Start Layout', 'Midpoint Plan', 'Target Execution'],
-            datasets: [
-              { label: 'Target Strategy Path', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
-              { label: 'Real S-Curve Status', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
-            ]
-          },
-          options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
-        });
-      } catch(e) { console.error(e); }
-    }
-
-    loadState();
-    renderApp();
-  </script>
-</body>
-</html>
+                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link
