@@ -96,4 +96,517 @@
           </form>
         </div>
 
-        <div class="card shadow-sm p
+        <div class="card shadow-sm p-3 mb-3">
+          <h6 class="text-success fw-bold">➕ 2. Register Device Tag to Area</h6>
+          <form id="deviceForm">
+            <div class="mb-2">
+              <label for="devAreaSelect" class="small text-muted m-0">Select Target Area Location</label>
+              <select id="devAreaSelect" class="form-select form-select-sm" required><option value="">-- Select Area --</option></select>
+            </div>
+            <div class="mb-2">
+              <label for="devType" class="small text-muted m-0">Device Type Classification</label>
+              <select id="devType" class="form-select form-select-sm" required>
+                <option value="Backbone Network Switch">Backbone Network Switch</option>
+                <option value="Firewall">Firewall</option>
+                <option value="L2 Switch">L2 Switch</option>
+                <option value="Controller">Controller</option>
+                <option value="I/O Module">I/O Module</option>
+                <option value="Server/HMI Workstation">Server/HMI Workstation</option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label for="devTag" class="small text-muted m-0">Device Tag String Name</label>
+              <input type="text" id="devTag" class="form-control form-control-sm" placeholder="Device Tag Name (e.g., SW-BCKBNE-A)" required>
+            </div>
+            <button type="submit" class="btn btn-success btn-sm w-100">Register Device Tag</button>
+          </form>
+        </div>
+
+        <div class="card shadow-sm p-3 mb-3">
+          <h6 class="text-info fw-bold" style="color: #0dcaf0 !important;">➕ 3. Assign Activity Scope to Device</h6>
+          <form id="activityForm">
+            <div class="mb-2">
+              <label for="actDeviceSelect" class="small text-muted m-0">Select Registered Device Tag</label>
+              <select id="actDeviceSelect" class="form-select form-select-sm" required><option value="">-- Select Device --</option></select>
+            </div>
+            <div class="mb-2">
+              <label for="actName" class="small text-muted m-0">Activity Work Scope Title</label>
+              <input type="text" id="actName" class="form-control form-control-sm" placeholder="Activity Task Name (e.g., Cutover)" required>
+            </div>
+            <div class="row g-1 mb-2">
+              <div class="col">
+                <label for="actStart" class="small text-muted m-0">Start Date</label>
+                <input type="date" id="actStart" class="form-control form-control-sm" required>
+              </div>
+              <div class="col">
+                <label for="actEnd" class="small text-muted m-0">End Date</label>
+                <input type="date" id="actEnd" class="form-control form-control-sm" required>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-info btn-sm w-100 text-white">Assign Activity to Asset</button>
+          </form>
+        </div>
+
+      </div>
+
+      <div class="col-md-8">
+        <div class="card shadow-sm p-3">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="m-0 fw-bold">🧭 Structural Area & Activity Mapping</h5>
+            <div>
+              <button onclick="toggleAllCollapsibles(true)" class="btn btn-xs btn-outline-secondary py-0 px-2 small" style="font-size:11px;">Expand All</button>
+              <button onclick="toggleAllCollapsibles(false)" class="btn btn-xs btn-outline-secondary py-0 px-2 small" style="font-size:11px;">Collapse All</button>
+            </div>
+          </div>
+          
+          <div class="accordion" id="assetMasterAccordion"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Isolated stable signature key tracking configuration profile
+    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v500_stable';
+
+    let state = { areas: [], devices: [], activities: [] };
+    let collapsedTracker = {};
+
+    function loadState() {
+      try {
+        const data = localStorage.getItem(REFRESH_STORAGE_KEY);
+        if(data) {
+          const parsed = JSON.parse(data);
+          state.areas = parsed.areas || [];
+          state.devices = parsed.devices || [];
+          state.activities = parsed.activities || [];
+        }
+      } catch(e) { console.error("Load execution failed:", e); }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify(state));
+      } catch(e) { console.error("Storage save operation failed:", e); }
+    }
+
+    const areaForm = document.getElementById('areaForm');
+    const deviceForm = document.getElementById('deviceForm');
+    const activityForm = document.getElementById('activityForm');
+    const devAreaSelect = document.getElementById('devAreaSelect');
+    const actDeviceSelect = document.getElementById('actDeviceSelect');
+    const assetMasterAccordion = document.getElementById('assetMasterAccordion');
+    const typeBreakdownTableBody = document.getElementById('typeBreakdownTableBody');
+    let trendChart, reportChart;
+
+    areaForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      try {
+        state.areas.push({
+          id: Date.now(),
+          name: document.getElementById('areaNameInput').value.trim()
+        });
+        areaForm.reset();
+        saveState();
+        renderApp();
+      } catch(err) { console.error(err); }
+    });
+
+    deviceForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      try {
+        state.devices.push({
+          id: Date.now(),
+          areaId: parseInt(devAreaSelect.value),
+          type: document.getElementById('devType').value,
+          tag: document.getElementById('devTag').value.trim()
+        });
+        deviceForm.reset();
+        saveState();
+        renderApp();
+      } catch(err) { console.error(err); }
+    });
+
+    activityForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      try {
+        state.activities.push({
+          id: Date.now(),
+          deviceId: parseInt(actDeviceSelect.value),
+          name: document.getElementById('actName').value.trim(),
+          start: document.getElementById('actStart').value,
+          end: document.getElementById('actEnd').value,
+          status: 'Pending'
+        });
+        activityForm.reset();
+        saveState();
+        renderApp();
+      } catch(err) { console.error(err); }
+    });
+
+    window.toggleActivityStatus = function(id) {
+      const target = state.activities.find(a => a.id === id);
+      if(target) {
+        target.status = target.status === 'Pending' ? 'Complete' : 'Pending';
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.toggleAllCollapsibles = function(shouldExpand) {
+      state.areas.forEach(area => {
+        collapsedTracker[area.id] = !shouldExpand;
+      });
+      renderApp();
+    };
+
+    window.toggleAreaCollapseState = function(id) {
+      collapsedTracker[id] = !collapsedTracker[id];
+      saveState();
+      const targetCollapseDiv = document.getElementById(`collapse-body-${id}`);
+      const targetHeaderChevron = document.getElementById(`chevron-${id}`);
+      if(targetCollapseDiv) {
+        if(collapsedTracker[id]) {
+          targetCollapseDiv.classList.remove('show');
+          if(targetHeaderChevron) targetHeaderChevron.innerText = '▶';
+        } else {
+          targetCollapseDiv.classList.add('show');
+          if(targetHeaderChevron) targetHeaderChevron.innerText = '▼';
+        }
+      }
+    };
+
+    window.editAreaItem = function(id) {
+      const area = state.areas.find(a => a.id === id);
+      if(!area) return;
+      const newName = prompt("Rename Physical Area Location:", area.name);
+      if(newName && newName.trim()) {
+        area.name = newName.trim();
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.editDeviceItem = function(id) {
+      const dev = state.devices.find(d => d.id === id);
+      if(!dev) return;
+      
+      const newTag = prompt("Rename Device Tag Name:", dev.tag);
+      if(!newTag || !newTag.trim()) return;
+
+      let areaOptions = state.areas.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
+      const areaChoice = prompt(`Reassign Area for [${dev.tag}]? Leave blank to keep current.\n\nAvailable Areas:\n${areaOptions}\n\nEnter the number choice:`);
+      
+      if(areaChoice && parseInt(areaChoice) > 0 && parseInt(areaChoice) <= state.areas.length) {
+        dev.areaId = state.areas[parseInt(areaChoice) - 1].id;
+      }
+
+      dev.tag = newTag.trim();
+      saveState();
+      renderApp();
+    };
+
+    window.editActivityTask = function(id) {
+      const act = state.activities.find(a => a.id === id);
+      if(!act) return;
+
+      const newName = prompt("Rename Activity Work Scope Title:", act.name);
+      if(!newName || !newName.trim()) return;
+
+      const newStart = prompt("Update Start Target Date (YYYY-MM-DD):", act.start);
+      const newEnd = prompt("Update End Target Date (YYYY-MM-DD):", act.end);
+
+      let deviceOptions = state.devices.map((d, i) => {
+        const areaContext = state.areas.find(a => a.id === d.areaId);
+        return `${i + 1}. [${areaContext ? areaContext.name : 'N/A'}] ${d.tag}`;
+      }).join("\n");
+
+      const devChoice = prompt(`Reassign this Task to a different Device? Leave blank to keep current.\n\nAvailable Devices:\n${deviceOptions}\n\nEnter the number choice:`);
+
+      if(devChoice && parseInt(devChoice) > 0 && parseInt(devChoice) <= state.devices.length) {
+        act.deviceId = state.devices[parseInt(devChoice) - 1].id;
+      }
+
+      act.name = newName.trim();
+      if(newStart) act.start = newStart.trim();
+      if(newEnd) act.end = newEnd.trim();
+
+      saveState();
+      renderApp();
+    };
+
+    window.deleteAreaItem = function(id) {
+      if(confirm("Delete this Area? All devices and tasks inside it will drop off.")) {
+        const deviceIdsInArea = state.devices.filter(d => d.areaId === id).map(d => d.id);
+        state.areas = state.areas.filter(a => a.id !== id);
+        state.devices = state.devices.filter(d => d.areaId !== id);
+        state.activities = state.activities.filter(act => !deviceIdsInArea.includes(act.deviceId));
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.deleteDeviceItem = function(id) {
+      if(confirm("Remove this hardware device tag registration?")) {
+        state.devices = state.devices.filter(d => d.id !== id);
+        state.activities = state.activities.filter(act => act.deviceId !== id);
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.deleteActivityTask = function(id) {
+      if(confirm("Remove this assigned activity track?")) {
+        state.activities = state.activities.filter(a => a.id !== id);
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.clearAllData = function() {
+      if(confirm("Wipe clear the complete architecture?")) {
+        localStorage.removeItem(REFRESH_STORAGE_KEY);
+        state = { areas: [], devices: [], activities: [] };
+        renderApp();
+      }
+    };
+
+    window.exportToCSV = function() {
+      let csvRows = [];
+      csvRows.push("RowType,UniqueId,NameOrTag,ParentIdOrType,TargetStart,TargetEndOrStatus");
+      state.areas.forEach(a => csvRows.push(`AREA,${a.id},"${a.name}",,,`));
+      state.devices.forEach(d => csvRows.push(`DEVICE,${d.id},"${d.tag}",${d.areaId},"${d.type}",`));
+      state.activities.forEach(act => csvRows.push(`ACTIVITY,${act.id},"${act.name}",${act.deviceId},${act.start},${act.status}`));
+
+      const csvString = csvRows.join("\n");
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute("download", `Asset_Refresh_Master.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    window.importFromCSV = function() {
+      const fileInput = document.getElementById('csvFileInput');
+      if(!fileInput.files.length) { alert("Select a configuration file first."); return; }
+
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/);
+        let newAreas = []; let newDevices = []; let newActivities = [];
+
+        for(let i = 1; i < lines.length; i++) {
+          if(!lines[i].trim()) continue;
+          const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if(parts.length < 6) continue;
+
+          const rowType = parts[0].trim();
+          const uid = parseInt(parts[1]) || Date.now() + i;
+          const nameTag = parts[2].replace(/^"|"$/g, '').trim();
+          const parentIdOrType = parts[3].trim();
+          const tStart = parts[4].replace(/^"|"$/g, '').trim();
+          const tEndStatus = parts[5].trim();
+
+          if(rowType === 'AREA') { newAreas.push({ id: uid, name: nameTag }); }
+          else if(rowType === 'DEVICE') { newDevices.push({ id: uid, tag: nameTag, areaId: parseInt(parentIdOrType), type: tStart }); }
+          else if(rowType === 'ACTIVITY') { newActivities.push({ id: uid, name: nameTag, deviceId: parseInt(parentIdOrType), start: tStart, status: tEndStatus || 'Pending' }); }
+        }
+        state.areas = newAreas; state.devices = newDevices; state.activities = newActivities;
+        saveState(); renderApp();
+        alert("Hierarchy synchronized successfully!");
+        fileInput.value = '';
+      };
+      reader.readAsText(file);
+    };
+
+    function renderApp() {
+      try {
+        devAreaSelect.innerHTML = '<option value="">-- Select Area --</option>';
+        state.areas.forEach(a => { devAreaSelect.innerHTML += `<option value="${a.id}">${a.name}</option>`; });
+
+        actDeviceSelect.innerHTML = '<option value="">-- Select Device --</option>';
+        state.devices.forEach(d => {
+          const areaContext = state.areas.find(a => a.id === d.areaId);
+          actDeviceSelect.innerHTML += `<option value="${d.id}">[${areaContext ? areaContext.name : 'N/A'}] ${d.tag} (${d.type})</option>`;
+        });
+
+        assetMasterAccordion.innerHTML = '';
+        if(state.areas.length === 0) {
+          assetMasterAccordion.innerHTML = '<p class="text-muted text-center py-4">Create your first Physical Area location on the left form panel to begin.</p>';
+          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data parameters recorded.</td></tr>';
+          updateCharts({}, 0, 0);
+          return;
+        }
+
+        let areaPendingCounts = {}; let matrixReport = {};
+        let totalGlobalTasks = 0; let totalGlobalCompletedTasks = 0;
+
+        state.areas.forEach(area => {
+          areaPendingCounts[area.name] = 0;
+          const areaDevices = state.devices.filter(d => d.areaId === area.id);
+          
+          let totalAreaTasks = 0;
+          let completedAreaTasks = 0;
+          let deviceHtmlCollection = '';
+
+          areaDevices.forEach(dev => {
+            const devActivities = state.activities.filter(act => act.deviceId === dev.id);
+            let activityTasksHtml = '';
+
+            if(!matrixReport[area.name]) matrixReport[area.name] = {};
+            if(!matrixReport[area.name][dev.type]) matrixReport[area.name][dev.type] = { total: 0, completed: 0, pending: 0 };
+
+            devActivities.forEach(act => {
+              totalGlobalTasks++;
+              totalAreaTasks++;
+              matrixReport[area.name][dev.type].total += 1;
+
+              const isDone = act.status === 'Complete';
+              if(isDone) {
+                totalGlobalCompletedTasks++;
+                completedAreaTasks++;
+                matrixReport[area.name][dev.type].completed += 1;
+              } else {
+                areaPendingCounts[area.name] += 1;
+                matrixReport[area.name][dev.type].pending += 1;
+              }
+
+              activityTasksHtml += `
+                <div class="d-flex justify-content-between align-items-center ms-4 ps-2 my-1 bg-white border rounded p-1 small">
+                  <div>
+                    <input class="form-check-input me-2" type="checkbox" ${isDone ? 'checked' : ''} onclick="toggleActivityStatus(${act.id})" id="act-chk-${act.id}">
+                    <label class="${isDone ? 'text-decoration-line-through text-muted' : 'fw-bold'}" for="act-chk-${act.id}">${act.name}</label>
+                    <span class="text-muted mx-2">| Target Window: <strong>${act.start}</strong> to <strong>${act.end}</strong></span>
+                  </div>
+                  <div>
+                    <button onclick="editActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2">✏️ Edit</button>
+                    <button onclick="deleteActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none">❌</button>
+                  </div>
+                </div>
+              `;
+            });
+
+            deviceHtmlCollection += `
+              <div class="border rounded p-2 my-2 bg-light">
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1">
+                  <div>
+                    <span class="badge bg-secondary me-2">${dev.type}</span>
+                    <strong class="text-dark">${dev.tag}</strong>
+                  </div>
+                  <div>
+                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2" style="font-size:12px;">✏️ Modify</button>
+                    <button onclick="deleteDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none" style="font-size:12px;">❌</button>
+                  </div>
+                </div>
+                <div class="mt-1">${activityTasksHtml || '<em class="text-muted d-block small ms-3">No activity steps assigned.</em>'}</div>
+              </div>
+            `;
+          });
+
+          // Core Failsafe Calculation Wrapper: Blocks division-by-zero layout freezing instantly
+          const areaProgressPct = totalAreaTasks > 0 ? Math.round((completedAreaTasks / totalAreaTasks) * 100) : 0;
+          const isCollapsed = collapsedTracker[area.id] === true;
+
+          assetMasterAccordion.innerHTML += `
+            <div class="card mb-2 shadow-sm border-start border-3 border-primary">
+              <div class="card-header bg-white p-2 d-flex justify-content-between align-items-center area-header-clickable" onclick="toggleAreaCollapseState(${area.id})">
+                <div class="d-flex align-items-center gap-2">
+                  <span id="chevron-${area.id}" class="text-secondary small" style="min-width:15px;">${isCollapsed ? '▶' : '▼'}</span>
+                  <h6 class="m-0 text-dark fw-bold">🏢 Area Location: ${area.name}</h6>
+                </div>
+                <div class="d-flex align-items-center gap-3" onclick="event.stopPropagation();">
+                  <div class="d-flex align-items-center gap-1 bg-light border px-2 py-1 rounded shadow-sm" style="min-width: 140px;">
+                    <span class="small fw-bold text-primary" style="font-size: 11px;">${areaProgressPct}% Done</span>
+                    <div class="progress w-100" style="height: 6px;">
+                      <div class="progress-bar bg-success" style="width: ${areaProgressPct}%"></div>
+                    </div>
+                  </div>
+                  <div>
+                    <button onclick="editAreaItem(${area.id})" class="btn btn-xs btn-outline-warning py-0 px-1 font-monospace" style="font-size:11px;">Rename</button>
+                    <button onclick="deleteAreaItem(${area.id})" class="btn btn-xs btn-danger py-0 px-1 font-monospace" style="font-size:11px;">Delete</button>
+                  </div>
+                </div>
+              </div>
+              <div id="collapse-body-${area.id}" class="card-body p-3 bg-white border-top accordion-collapse collapse ${isCollapsed ? '' : 'show'}">
+                <div>${deviceHtmlCollection || '<em class="text-muted small d-block py-2">No hardware device assets registered to this location.</em>'}</div>
+              </div>
+            </div>
+          `;
+        });
+
+        typeBreakdownTableBody.innerHTML = '';
+        const reportingAreas = Object.keys(matrixReport);
+        if(reportingAreas.length === 0) {
+          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Assign tasks to build metric graphs.</td></tr>';
+        } else {
+          reportingAreas.forEach(areaName => {
+            Object.keys(matrixReport[areaName]).forEach(type => {
+              const currentObj = matrixReport[areaName][type];
+              const progress = currentObj.total > 0 ? Math.round((currentObj.completed / currentObj.total) * 100) : 0;
+              typeBreakdownTableBody.innerHTML += `
+                <tr>
+                  <td><strong>${areaName}</strong></td>
+                  <td><span class="text-secondary fw-semibold">${type}</span></td>
+                  <td><span class="badge bg-dark">${currentObj.total}</span></td>
+                  <td><span class="badge bg-success">${currentObj.completed}</span></td>
+                  <td><span class="badge bg-danger">${currentObj.pending}</span></td>
+                  <td>
+                    <div class="d-flex align-items-center justify-content-center">
+                      <span class="me-2 fw-bold" style="min-width:35px;">${progress}%</span>
+                      <div class="progress w-100" style="height: 8px; max-width:100px;">
+                        <div class="progress-bar bg-success" style="width: ${progress}%"></div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            });
+          });
+        }
+
+        updateCharts(areaPendingCounts, totalGlobalTasks, totalGlobalCompletedTasks);
+      } catch(err) { console.error("Render error caught seamlessly:", err); }
+    }
+
+    function updateCharts(areaData, total, completed) {
+      try {
+        const rCtx = document.getElementById('areaReportChart').getContext('2d');
+        if(reportChart) reportChart.destroy();
+        reportChart = new Chart(rCtx, {
+          type: 'bar',
+          data: {
+            labels: Object.keys(areaData),
+            datasets: [{ label: 'Outstanding Activity Tasks', data: Object.values(areaData), backgroundColor: '#dc3545' }]
+          },
+          options: { responsive: true }
+        });
+
+        const tCtx = document.getElementById('trendChart').getContext('2d');
+        if(trendChart) trendChart.destroy();
+        
+        const actualPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        trendChart = new Chart(tCtx, {
+          type: 'line',
+          data: {
+            labels: ['Start Layout', 'Midpoint Plan', 'Target Execution'],
+            datasets: [
+              { label: 'Target Strategy Path', data: [0, 50, 100], borderColor: '#0d6efd', borderDash: [5,5], fill: false },
+              { label: 'Real S-Curve Status', data: [0, actualPct / 2, actualPct], borderColor: '#198754', fill: false }
+            ]
+          },
+          options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+        });
+      } catch(e) { console.error(e); }
+    }
+
+    loadState();
+    renderApp();
+  </script>
+</body>
+</html>
