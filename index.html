@@ -12,13 +12,22 @@
     .action-btn:hover { opacity: 1; }
     .area-header-clickable { cursor: pointer; transition: background-color 0.2s; }
     .area-header-clickable:hover { background-color: #f1f3f5 !important; }
+    
+    /* Interactive Tree Grid Styling */
+    .tree-row-area { background-color: #e8f4fd !important; font-weight: bold; cursor: pointer; }
+    .tree-row-area:hover { background-color: #d0e8fc !important; }
+    .tree-row-activity { background-color: #f8f9fa !important; font-weight: 500; cursor: pointer; }
+    .tree-row-activity:hover { background-color: #e9ecef !important; }
+    .tree-row-device { background-color: #ffffff !important; }
+    .hidden-tree-row { display: none !important; }
+    .tree-node-toggle { display: inline-block; width: 18px; font-family: monospace; text-align: center; }
   </style>
 </head>
 <body class="bg-light">
 
   <nav class="navbar navbar-dark bg-dark mb-4">
     <div class="container-fluid">
-      <span class="navbar-brand mb-0 h1">🎛️ Control System Tech Refresh Planner (Asset Hierarchy Mode)</span>
+      <span class="navbar-brand mb-0 h1">🎛️ Control System Tech Refresh Planner (Hierarchical Asset Matrix)</span>
       <button onclick="clearAllData()" class="btn btn-danger btn-sm">⚠️ Reset App Data</button>
     </div>
   </nav>
@@ -62,17 +71,20 @@
     <div class="row mb-4">
       <div class="col-12">
         <div class="card shadow-sm p-3">
-          <h5 class="card-title text-dark">📋 Hardware Type Breakdown Report (Per Area)</h5>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="card-title text-dark m-0">📋 Hierarchical Breakdown Report (Area ➔ Activity ➔ Device)</h5>
+            <span class="text-muted small">💡 Click rows to expand/collapse metrics</span>
+          </div>
           <div class="table-responsive mt-2">
-            <table class="table table-sm table-bordered table-striped align-middle text-center small mb-0">
-              <thead class="table-secondary">
+            <table class="table table-sm table-bordered align-middle text-center small mb-0">
+              <thead class="table-dark">
                 <tr>
-                  <th>Physical Area</th>
-                  <th>Device Type</th>
-                  <th>Total Count</th>
-                  <th>Completed Tasks</th>
-                  <th>Outstanding Tasks</th>
-                  <th>Task Progress</th>
+                  <th class="text-start" style="width: 35%;">Hierarchy Element</th>
+                  <th style="width: 15%;">Classification Level</th>
+                  <th style="width: 10%;">Total Tasks</th>
+                  <th style="width: 12%;">Completed Tasks</th>
+                  <th style="width: 13%;">Outstanding Tasks</th>
+                  <th style="width: 15%;">Progress</th>
                 </tr>
               </thead>
               <tbody id="typeBreakdownTableBody"></tbody>
@@ -152,13 +164,12 @@
       <div class="col-md-8">
         <div class="card shadow-sm p-3">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="m-0 fw-bold">🧭 Structural Area & Activity Mapping</h5>
+            <h5 class="m-0 fw-bold">🧭 Structural Area & Activity Mapping Workspace</h5>
             <div>
               <button onclick="toggleAllCollapsibles(true)" class="btn btn-xs btn-outline-secondary py-0 px-2 small" style="font-size:11px;">Expand All</button>
               <button onclick="toggleAllCollapsibles(false)" class="btn btn-xs btn-outline-secondary py-0 px-2 small" style="font-size:11px;">Collapse All</button>
             </div>
           </div>
-          
           <div class="accordion" id="assetMasterAccordion"></div>
         </div>
       </div>
@@ -166,11 +177,12 @@
   </div>
 
   <script>
-    // Fully clean baseline tracking key signatures
-    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v600_final';
+    // New isolated storage version tag signature key to avoid old data collisions
+    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v700';
 
     let state = { areas: [], devices: [], activities: [] };
     let collapsedTracker = {};
+    let tableRowCollapsedTracker = {}; // Tracks expanded/collapsed state of the grid table rows
 
     function loadState() {
       try {
@@ -180,20 +192,14 @@
           state.areas = Array.isArray(parsed.areas) ? parsed.areas : [];
           state.devices = Array.isArray(parsed.devices) ? parsed.devices : [];
           state.activities = Array.isArray(parsed.activities) ? parsed.activities : [];
-        } else {
-          // Failsafe initialization path if empty domain detected
-          state = { areas: [], devices: [], activities: [] };
         }
-      } catch(e) { 
-        console.error("Failsafe loaded cleanly:", e);
-        state = { areas: [], devices: [], activities: [] };
-      }
+      } catch(e) { console.error("Database compilation failed:", e); }
     }
 
     function saveState() {
       try {
         localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify(state));
-      } catch(e) { console.error("Storage save operation failed:", e); }
+      } catch(e) { console.error("Storage save transaction rejected:", e); }
     }
 
     const areaForm = document.getElementById('areaForm');
@@ -207,10 +213,7 @@
 
     areaForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      state.areas.push({
-        id: Date.now(),
-        name: document.getElementById('areaNameInput').value.trim()
-      });
+      state.areas.push({ id: Date.now(), name: document.getElementById('areaNameInput').value.trim() });
       areaForm.reset();
       saveState();
       renderApp();
@@ -254,52 +257,40 @@
     };
 
     window.toggleAllCollapsibles = function(shouldExpand) {
-      state.areas.forEach(area => {
-        collapsedTracker[area.id] = !shouldExpand;
-      });
+      state.areas.forEach(area => { collapsedTracker[area.id] = !shouldExpand; });
       renderApp();
     };
 
     window.toggleAreaCollapseState = function(id) {
       collapsedTracker[id] = !collapsedTracker[id];
-      const targetCollapseDiv = document.getElementById(`collapse-body-${id}`);
-      const targetHeaderChevron = document.getElementById(`chevron-${id}`);
-      if(targetCollapseDiv) {
-        if(collapsedTracker[id]) {
-          targetCollapseDiv.classList.remove('show');
-          if(targetHeaderChevron) targetHeaderChevron.innerText = '▶';
-        } else {
-          targetCollapseDiv.classList.add('show');
-          if(targetHeaderChevron) targetHeaderChevron.innerText = '▼';
-        }
-      }
+      saveState();
+      renderApp();
+    };
+
+    // Tree-Grid Table row toggle engine
+    window.toggleTableRowCollapse = function(rowKey) {
+      tableRowCollapsedTracker[rowKey] = !tableRowCollapsedTracker[rowKey];
+      renderApp();
     };
 
     window.editAreaItem = function(id) {
       const area = state.areas.find(a => a.id === id);
       if(!area) return;
       const newName = prompt("Rename Physical Area Location:", area.name);
-      if(newName && newName.trim()) {
-        area.name = newName.trim();
-        saveState();
-        renderApp();
-      }
+      if(newName && newName.trim()) { area.name = newName.trim(); saveState(); renderApp(); }
     };
 
     window.editDeviceItem = function(id) {
       const dev = state.devices.find(d => d.id === id);
       if(!dev) return;
-      
       const newTag = prompt("Rename Device Tag Name:", dev.tag);
       if(!newTag || !newTag.trim()) return;
 
       let areaOptions = state.areas.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
-      const areaChoice = prompt(`Reassign Area for [${dev.tag}]? Leave blank to keep current.\n\nAvailable Areas:\n${areaOptions}\n\nEnter the number choice:`);
-      
+      const areaChoice = prompt(`Reassign Area for [${dev.tag}]?\n\nAvailable Areas:\n${areaOptions}`);
       if(areaChoice && parseInt(areaChoice) > 0 && parseInt(areaChoice) <= state.areas.length) {
         dev.areaId = state.areas[parseInt(areaChoice) - 1].id;
       }
-
       dev.tag = newTag.trim();
       saveState();
       renderApp();
@@ -308,64 +299,44 @@
     window.editActivityTask = function(id) {
       const act = state.activities.find(a => a.id === id);
       if(!act) return;
-
-      const newName = prompt("Rename Activity Work Scope Title:", act.name);
+      const newName = prompt("Rename Activity Work Title:", act.name);
       if(!newName || !newName.trim()) return;
 
-      const newStart = prompt("Update Start Target Date (YYYY-MM-DD):", act.start);
-      const newEnd = prompt("Update End Target Date (YYYY-MM-DD):", act.end);
-
-      let deviceOptions = state.devices.map((d, i) => {
-        const areaContext = state.areas.find(a => a.id === d.areaId);
-        return `${i + 1}. [${areaContext ? areaContext.name : 'N/A'}] ${d.tag}`;
-      }).join("\n");
-
-      const devChoice = prompt(`Reassign this Task to a different Device? Leave blank to keep current.\n\nAvailable Devices:\n${deviceOptions}\n\nEnter the number choice:`);
-
-      if(devChoice && parseInt(devChoice) > 0 && parseInt(devChoice) <= state.devices.length) {
-        act.deviceId = state.devices[parseInt(devChoice) - 1].id;
-      }
-
       act.name = newName.trim();
-      if(newStart) act.start = newStart.trim();
-      if(newEnd) act.end = newEnd.trim();
-
       saveState();
       renderApp();
     };
 
     window.deleteAreaItem = function(id) {
-      if(confirm("Delete this Area? All devices and tasks inside it will drop off.")) {
+      if(confirm("Delete this Area? All devices and tasks inside will be deleted.")) {
         const deviceIdsInArea = state.devices.filter(d => d.areaId === id).map(d => d.id);
         state.areas = state.areas.filter(a => a.id !== id);
         state.devices = state.devices.filter(d => d.areaId !== id);
         state.activities = state.activities.filter(act => !deviceIdsInArea.includes(act.deviceId));
-        saveState();
-        renderApp();
+        saveState(); renderApp();
       }
     };
 
     window.deleteDeviceItem = function(id) {
-      if(confirm("Remove this hardware device tag registration?")) {
+      if(confirm("Remove this device tag?")) {
         state.devices = state.devices.filter(d => d.id !== id);
         state.activities = state.activities.filter(act => act.deviceId !== id);
-        saveState();
-        renderApp();
+        saveState(); renderApp();
       }
     };
 
     window.deleteActivityTask = function(id) {
-      if(confirm("Remove this assigned activity track?")) {
+      if(confirm("Remove this activity task?")) {
         state.activities = state.activities.filter(a => a.id !== id);
-        saveState();
-        renderApp();
+        saveState(); renderApp();
       }
     };
 
     window.clearAllData = function() {
-      if(confirm("Wipe clear the complete architecture?")) {
+      if(confirm("Wipe out the entire database layout?")) {
         localStorage.removeItem(REFRESH_STORAGE_KEY);
         state = { areas: [], devices: [], activities: [] };
+        tableRowCollapsedTracker = {};
         renderApp();
       }
     };
@@ -376,114 +347,102 @@
       state.areas.forEach(a => csvRows.push(`AREA,${a.id},"${a.name}",,,`));
       state.devices.forEach(d => csvRows.push(`DEVICE,${d.id},"${d.tag}",${d.areaId},"${d.type}",`));
       state.activities.forEach(act => csvRows.push(`ACTIVITY,${act.id},"${act.name}",${act.deviceId},${act.start},${act.status}`));
-
       const csvString = csvRows.join("\n");
       const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.setAttribute("download", `Asset_Refresh_Master.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      link.setAttribute("download", `Hierarchical_Asset_Data.csv`);
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
     window.importFromCSV = function() {
       const fileInput = document.getElementById('csvFileInput');
-      if(!fileInput.files.length) { alert("Select a configuration file first."); return; }
-
-      const file = fileInput.files[0];
+      if(!fileInput.files.length) { alert("Select a file first."); return; }
       const reader = new FileReader();
-
       reader.onload = function(e) {
-        const text = e.target.result;
-        const lines = text.split(/\r?\n/);
+        const text = e.target.result; const lines = text.split(/\r?\n/);
         let newAreas = []; let newDevices = []; let newActivities = [];
-
         for(let i = 1; i < lines.length; i++) {
           if(!lines[i].trim()) continue;
           const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
           if(parts.length < 6) continue;
+          const rowType = parts[0].trim(); const uid = parseInt(parts[1]);
+          const nameTag = parts[2].replace(/^"|"$/g, '').trim(); const parentId = parts[3].trim();
+          const tStart = parts[4].replace(/^"|"$/g, '').trim(); const statusVal = parts[5].trim();
 
-          const rowType = parts[0].trim();
-          const uid = parseInt(parts[1]) || Date.now() + i;
-          const nameTag = parts[2].replace(/^"|"$/g, '').trim();
-          const parentIdOrType = parts[3].trim();
-          const tStart = parts[4].replace(/^"|"$/g, '').trim();
-          const tEndStatus = parts[5].trim();
-
-          if(rowType === 'AREA') { newAreas.push({ id: uid, name: nameTag }); }
-          else if(rowType === 'DEVICE') { newDevices.push({ id: uid, tag: nameTag, areaId: parseInt(parentIdOrType), type: tStart }); }
-          else if(rowType === 'ACTIVITY') { newActivities.push({ id: uid, name: nameTag, deviceId: parseInt(parentIdOrType), start: tStart, status: tEndStatus || 'Pending' }); }
+          if(rowType === 'AREA') newAreas.push({ id: uid, name: nameTag });
+          else if(rowType === 'DEVICE') newDevices.push({ id: uid, tag: nameTag, areaId: parseInt(parentId), type: tStart });
+          else if(rowType === 'ACTIVITY') newActivities.push({ id: uid, name: nameTag, deviceId: parseInt(parentId), start: tStart, status: statusVal || 'Pending' });
         }
         state.areas = newAreas; state.devices = newDevices; state.activities = newActivities;
-        saveState(); renderApp();
-        alert("Hierarchy synchronized successfully!");
-        fileInput.value = '';
+        saveState(); renderApp(); alert("Sync complete!");
       };
-      reader.readAsText(file);
+      reader.readAsText(fileInput.files[0]);
     };
 
     function renderApp() {
       try {
+        // Dropdown Mapping Utilities
         devAreaSelect.innerHTML = '<option value="">-- Select Area --</option>';
         state.areas.forEach(a => { devAreaSelect.innerHTML += `<option value="${a.id}">${a.name}</option>`; });
 
         actDeviceSelect.innerHTML = '<option value="">-- Select Device --</option>';
         state.devices.forEach(d => {
-          const areaContext = state.areas.find(a => a.id === d.areaId);
-          actDeviceSelect.innerHTML += `<option value="${d.id}">[${areaContext ? areaContext.name : 'N/A'}] ${d.tag} (${d.type})</option>`;
+          const aCtx = state.areas.find(a => a.id === d.areaId);
+          actDeviceSelect.innerHTML += `<option value="${d.id}">[${aCtx ? aCtx.name : 'N/A'}] ${d.tag} (${d.type})</option>`;
         });
 
         assetMasterAccordion.innerHTML = '';
+        typeBreakdownTableBody.innerHTML = '';
+
         if(state.areas.length === 0) {
-          assetMasterAccordion.innerHTML = '<p class="text-muted text-center py-4">Create your first Physical Area location on the left form panel to begin.</p>';
-          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No data parameters recorded.</td></tr>';
-          updateCharts({}, 0, 0);
-          return;
+          assetMasterAccordion.innerHTML = '<p class="text-muted text-center py-4">Create an Area Location to unlock the workspace.</p>';
+          typeBreakdownTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">No structural logs recorded.</td></tr>';
+          updateCharts({}, 0, 0); return;
         }
 
-        let areaPendingCounts = {}; let matrixReport = {};
+        let areaPendingCounts = {};
         let totalGlobalTasks = 0; let totalGlobalCompletedTasks = 0;
 
+        // Loop through everything hierarchically to build workspace and tree grid simultaneously
         state.areas.forEach(area => {
           areaPendingCounts[area.name] = 0;
           const areaDevices = state.devices.filter(d => d.areaId === area.id);
           
-          let totalAreaTasks = 0;
-          let completedAreaTasks = 0;
+          let totalAreaTasks = 0; let completedAreaTasks = 0;
           let deviceHtmlCollection = '';
+          
+          // Structure storage data map specifically tailored for tree-grid grouping
+          let areaTreeData = {};
 
           areaDevices.forEach(dev => {
             const devActivities = state.activities.filter(act => act.deviceId === dev.id);
             let activityTasksHtml = '';
 
-            if(!matrixReport[area.name]) matrixReport[area.name] = {};
-            if(!matrixReport[area.name][dev.type]) matrixReport[area.name][dev.type] = { total: 0, completed: 0, pending: 0 };
-
             devActivities.forEach(act => {
-              totalGlobalTasks++;
-              totalAreaTasks++;
-              matrixReport[area.name][dev.type].total += 1;
-
+              totalGlobalTasks++; totalAreaTasks++;
               const isDone = act.status === 'Complete';
-              if(isDone) {
-                totalGlobalCompletedTasks++;
-                completedAreaTasks++;
-                matrixReport[area.name][dev.type].completed += 1;
-              } else {
-                areaPendingCounts[area.name] += 1;
-                matrixReport[area.name][dev.type].pending += 1;
-              }
+              if(isDone) completedAreaTasks++;
+              else areaPendingCounts[area.name]++;
+
+              // Build mapping logic metrics for tree breakdown rows
+              if(!areaTreeData[act.name]) areaTreeData[act.name] = { total: 0, completed: 0, devices: {} };
+              areaTreeData[act.name].total += 1;
+              if(isDone) areaTreeData[act.name].completed += 1;
+
+              if(!areaTreeData[act.name].devices[dev.type]) areaTreeData[act.name].devices[dev.type] = { total: 0, completed: 0 };
+              areaTreeData[act.name].devices[dev.type].total += 1;
+              if(isDone) areaTreeData[act.name].devices[dev.type].completed += 1;
 
               activityTasksHtml += `
                 <div class="d-flex justify-content-between align-items-center ms-4 ps-2 my-1 bg-white border rounded p-1 small">
                   <div>
                     <input class="form-check-input me-2" type="checkbox" ${isDone ? 'checked' : ''} onclick="toggleActivityStatus(${act.id})" id="act-chk-${act.id}">
                     <label class="${isDone ? 'text-decoration-line-through text-muted' : 'fw-bold'}" for="act-chk-${act.id}">${act.name}</label>
-                    <span class="text-muted mx-2">| Target Window: <strong>${act.start}</strong> to <strong>${act.end}</strong></span>
+                    <span class="text-muted mx-2">| Window: <strong>${act.start}</strong> to <strong>${act.end}</strong></span>
                   </div>
                   <div>
-                    <button onclick="editActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2">✏️ Edit</button>
+                    <button onclick="editActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2">✏️</button>
                     <button onclick="deleteActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none">❌</button>
                   </div>
                 </div>
@@ -493,9 +452,23 @@
             deviceHtmlCollection += `
               <div class="border rounded p-2 my-2 bg-light">
                 <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1">
+                  <div><span class="badge bg-secondary me-2">${dev.type}</span><strong class="text-dark">${dev.tag}</strong></div>
                   <div>
-                    <span class="badge bg-secondary me-2">${dev.type}</span>
-                    <strong class="text-dark">${dev.tag}</strong>
+                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2" style="font-size:12px;">✏️</button>
+                    <button onclick="deleteDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none" style="font-size:12px;">❌</button>
                   </div>
-                  <div>
-                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link
+                </div>
+                <div class="mt-1">${activityTasksHtml || '<em class="text-muted d-block small ms-3">No tasks mapped.</em>'}</div>
+              </div>
+            `;
+          });
+
+          // --- WORKSPACE RENDER BLOCK ---
+          const areaProgressPct = totalAreaTasks > 0 ? Math.round((completedAreaTasks / totalAreaTasks) * 100) : 0;
+          const isAreaCollapsed = collapsedTracker[area.id] === true;
+
+          assetMasterAccordion.innerHTML += `
+            <div class="card mb-2 shadow-sm border-start border-3 border-primary">
+              <div class="card-header bg-white p-2 d-flex justify-content-between align-items-center area-header-clickable" onclick="toggleAreaCollapseState(${area.id})">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="text-secondary small" style="min-width:15px;">${is
