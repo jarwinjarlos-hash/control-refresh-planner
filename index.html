@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control System Tech Refresh Planner</title>
+  <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,=">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .action-btn { opacity: 0.6; transition: opacity 0.2s; cursor: pointer; }
+    .action-btn:hover { opacity: 1; }
+    .area-header-clickable { cursor: pointer; transition: background-color 0.2s; }
+    .area-header-clickable:hover { background-color: #f1f3f5 !important; }
+    
+    /* Interactive Tree Grid Styling */
+    .tree-row-area { background-color: #e8f4fd !important; font-weight: bold; cursor: pointer; }
+    .tree-row-area:hover { background-color: #d0e8fc !important; }
+    .tree-row-activity { background-color: #f8f9fa !important; font-weight: 500; cursor: pointer; }
+    .tree-row-activity:hover { background-color: #e9ecef !important; }
+    .tree-row-device { background-color: #ffffff !important; }
+    .hidden-tree-row { display: none !important; }
+    .tree-node-toggle { display: inline-block; width: 18px; font-family: monospace; text-align: center; }
+  </style>
+</head>
+<body class="bg-light">
+
+  <nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container-fluid">
+      <span class="navbar-brand mb-0 h1">🎛️ Control System Tech Refresh Planner (Hierarchical Asset Matrix)</span>
+      <button onclick="clearAllData()" class="btn btn-danger btn-sm">⚠️ Reset App Data</button>
+    </div>
+  </nav>
+
+  <div class="container mb-5">
+    
+    <div class="row mb-4">
+      <div class="col-12">
+        <div class="card border-primary p-3 bg-white shadow-sm">
+          <h6 class="text-primary fw-bold">💾 Bulk Data Management & Backups (CSV Mode)</h6>
+          <p class="small text-muted mb-3">
+            Export your database layout to CSV, mass-edit your Area -> Device -> Activity hierarchy in Excel, then upload the file back here to sync changes.
+          </p>
+          <div class="d-flex flex-wrap gap-3 align-items-center">
+            <button onclick="exportToCSV()" class="btn btn-primary btn-sm">📥 Export Current Data to CSV</button>
+            <div class="border-start ps-3 d-flex align-items-center gap-2">
+              <label for="csvFileInput" class="small fw-bold text-secondary mb-0">Upload Edited CSV File:</label>
+              <input type="file" id="csvFileInput" accept=".csv" class="form-control form-control-sm" style="max-width: 250px;">
+              <button onclick="importFromCSV()" class="btn btn-success btn-sm">📤 Upload & Sync Data</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mb-4">
+      <div class="col-md-6 mb-3">
+        <div class="card shadow-sm p-3 h-100">
+          <h5 class="card-title">Project S-Curve Trend</h5>
+          <canvas id="trendChart" height="140"></canvas>
+        </div>
+      </div>
+      <div class="col-md-6 mb-3">
+        <div class="card shadow-sm p-3 h-100">
+          <h5 class="card-title">Pending Devices per Area</h5>
+          <canvas id="areaReportChart" height="140"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mb-4">
+      <div class="col-12">
+        <div class="card shadow-sm p-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="card-title text-dark m-0">📋 Hierarchical Breakdown Report (Area ➔ Activity ➔ Device)</h5>
+            <span class="text-muted small">💡 Click rows to expand/collapse metrics</span>
+          </div>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm table-bordered align-middle text-center small mb-0">
+              <thead class="table-dark">
+                <tr>
+                  <th class="text-start" style="width: 35%;">Hierarchy Element</th>
+                  <th style="width: 15%;">Classification Level</th>
+                  <th style="width: 10%;">Total Tasks</th>
+                  <th style="width: 12%;">Completed Tasks</th>
+                  <th style="width: 13%;">Outstanding Tasks</th>
+                  <th style="width: 15%;">Progress</th>
+                </tr>
+              </thead>
+              <tbody id="typeBreakdownTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-4">
+        
+        <div class="card shadow-sm p-3 mb-3">
+          <h6 class="text-primary fw-bold">➕ 1. Identify Physical Area</h6>
+          <form id="areaForm">
+            <div class="mb-2">
+              <label for="areaNameInput" class="small text-muted m-0">Area Name Location</label>
+              <input type="text" id="areaNameInput" class="form-control form-control-sm" placeholder="Area Name (e.g., Community 1)" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm w-100">Create Area Location</button>
+          </form>
+        </div>
+
+        <div class="card shadow-sm p-3 mb-3">
+          <h6 class="text-success fw-bold">➕ 2. Register Device Tag to Area</h6>
+          <form id="deviceForm">
+            <div class="mb-2">
+              <label for="devAreaSelect" class="small text-muted m-0">Select Target Area Location</label>
+              <select id="devAreaSelect" class="form-select form-select-sm" required><option value="">-- Select Area --</option></select>
+            </div>
+            <div class="mb-2">
+              <label for="devType" class="small text-muted m-0">Device Type Classification</label>
+              <select id="devType" class="form-select form-select-sm" required>
+                <option value="Backbone Network Switch">Backbone Network Switch</option>
+                <option value="Firewall">Firewall</option>
+                <option value="L2 Switch">L2 Switch</option>
+                <option value="Controller">Controller</option>
+                <option value="I/O Module">I/O Module</option>
+                <option value="Server/HMI Workstation">Server/HMI Workstation</option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label for="devTag" class="small text-muted m-0">Device Tag String Name</label>
+              <input type="text" id="devTag" class="form-control form-control-sm" placeholder="Device Tag Name (e.g., SW-BCKBNE-A)" required>
+            </div>
+            <button type="submit" class="btn btn-success btn-sm w-100">Register Device Tag</button>
+          </form>
+        </div>
+
+        <div class="card shadow-sm p-3 mb-3">
+          <h6 class="text-info fw-bold" style="color: #0dcaf0 !important;">➕ 3. Assign Activity Scope to Device</h6>
+          <form id="activityForm">
+            <div class="mb-2">
+              <label for="actDeviceSelect" class="small text-muted m-0">Select Registered Device Tag</label>
+              <select id="actDeviceSelect" class="form-select form-select-sm" required><option value="">-- Select Device --</option></select>
+            </div>
+            <div class="mb-2">
+              <label for="actName" class="small text-muted m-0">Activity Work Scope Title</label>
+              <input type="text" id="actName" class="form-control form-control-sm" placeholder="Activity Task Name (e.g., Cutover)" required>
+            </div>
+            <div class="row g-1 mb-2">
+              <div class="col">
+                <label for="actStart" class="small text-muted m-0">Start Date</label>
+                <input type="date" id="actStart" class="form-control form-control-sm" required>
+              </div>
+              <div class="col">
+                <label for="actEnd" class="small text-muted m-0">End Date</label>
+                <input type="date" id="actEnd" class="form-control form-control-sm" required>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-info btn-sm w-100 text-white">Assign Activity to Asset</button>
+          </form>
+        </div>
+
+      </div>
+
+      <div class="col-md-8">
+        <div class="card shadow-sm p-3">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="m-0 fw-bold">🧭 Structural Area & Activity Mapping Workspace</h5>
+            <div>
+              <button onclick="toggleAllCollapsibles(true)" class="btn btn-xs btn-outline-secondary py-0 px-2 small" style="font-size:11px;">Expand All</button>
+              <button onclick="toggleAllCollapsibles(false)" class="btn btn-xs btn-outline-secondary py-0 px-2 small" style="font-size:11px;">Collapse All</button>
+            </div>
+          </div>
+          <div class="accordion" id="assetMasterAccordion"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Using a clear storage version key to eliminate corrupt or old baseline blocks
+    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v900_stable';
+
+    let state = { areas: [], devices: [], activities: [] };
+    let collapsedTracker = {};
+    let tableRowCollapsedTracker = {}; 
+
+    function loadState() {
+      try {
+        const data = localStorage.getItem(REFRESH_STORAGE_KEY);
+        if(data) {
+          const parsed = JSON.parse(data);
+          state.areas = Array.isArray(parsed.areas) ? parsed.areas : [];
+          state.devices = Array.isArray(parsed.devices) ? parsed.devices : [];
+          state.activities = Array.isArray(parsed.activities) ? parsed.activities : [];
+        }
+      } catch(e) { 
+        console.error("Cache reset verified:", e);
+      }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify(state));
+      } catch(e) { console.error("Storage write error:", e); }
+    }
+
+    const areaForm = document.getElementById('areaForm');
+    const deviceForm = document.getElementById('deviceForm');
+    const activityForm = document.getElementById('activityForm');
+    const devAreaSelect = document.getElementById('devAreaSelect');
+    const actDeviceSelect = document.getElementById('actDeviceSelect');
+    const assetMasterAccordion = document.getElementById('assetMasterAccordion');
+    const typeBreakdownTableBody = document.getElementById('typeBreakdownTableBody');
+    let trendChart, reportChart;
+
+    areaForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.areas.push({ id: Date.now(), name: document.getElementById('areaNameInput').value.trim() });
+      areaForm.reset();
+      saveState();
+      renderApp();
+    });
+
+    deviceForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.devices.push({
+        id: Date.now(),
+        areaId: parseInt(devAreaSelect.value),
+        type: document.getElementById('devType').value,
+        tag: document.getElementById('devTag').value.trim()
+      });
+      deviceForm.reset();
+      saveState();
+      renderApp();
+    });
+
+    activityForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.activities.push({
+        id: Date.now(),
+        deviceId: parseInt(actDeviceSelect.value),
+        name: document.getElementById('actName').value.trim(),
+        start:
