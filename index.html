@@ -8,7 +8,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    .action-btn { opacity: 0.6; transition: opacity 0.2s; }
+    .action-btn { opacity: 0.6; transition: opacity 0.2s; cursor: pointer; }
     .action-btn:hover { opacity: 1; }
     .area-card { border-left: 4px solid #0d6efd; }
   </style>
@@ -114,7 +114,7 @@
               </select>
             </div>
             <div class="mb-2">
-              <label for="devTag" class="small text-muted m-0">Device Tag String Name</label>
+              <label mercantile for="devTag" class="small text-muted m-0">Device Tag String Name</label>
               <input type="text" id="devTag" class="form-control form-control-sm" placeholder="Device Tag Name (e.g., SW-BCKBNE-A)" required>
             </div>
             <button type="submit" class="btn btn-success btn-sm w-100">Register Device Tag</button>
@@ -158,7 +158,7 @@
   </div>
 
   <script>
-    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v250';
+    const REFRESH_STORAGE_KEY = 'cs_refresh_hierarchical_v300';
 
     let state = { areas: [], devices: [], activities: [] };
 
@@ -236,6 +236,73 @@
         renderApp();
       }
     };
+
+    // --- NEW EDITING AND REASSIGNMENT FUNCTIONS ---
+
+    window.editAreaItem = function(id) {
+      const area = state.areas.find(a => a.id === id);
+      if(!area) return;
+      const newName = prompt("Rename Physical Area Location:", area.name);
+      if(newName && newName.trim()) {
+        area.name = newName.trim();
+        saveState();
+        renderApp();
+      }
+    };
+
+    window.editDeviceItem = function(id) {
+      const dev = state.devices.find(d => d.id === id);
+      if(!dev) return;
+      
+      const newTag = prompt("Rename Device Tag Name:", dev.tag);
+      if(!newTag || !newTag.trim()) return;
+
+      // Build Area prompt select mapping context text
+      let areaOptions = state.areas.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
+      const areaChoice = prompt(`Reassign Area for [${dev.tag}]? Leave blank to keep current.\n\nAvailable Areas:\n${areaOptions}\n\nEnter the number choice:`);
+      
+      if(areaChoice && parseInt(areaChoice) > 0 && parseInt(areaChoice) <= state.areas.length) {
+        const selectedArea = state.areas[parseInt(areaChoice) - 1];
+        dev.areaId = selectedArea.id;
+      }
+
+      dev.tag = newTag.trim();
+      saveState();
+      renderApp();
+    };
+
+    window.editActivityTask = function(id) {
+      const act = state.activities.find(a => a.id === id);
+      if(!act) return;
+
+      const newName = prompt("Rename Activity Work Scope Title:", act.name);
+      if(!newName || !newName.trim()) return;
+
+      const newStart = prompt("Update Start Target Date (YYYY-MM-DD):", act.start);
+      const newEnd = prompt("Update End Target Date (YYYY-MM-DD):", act.end);
+
+      // Device re-assignment prompt selection map context
+      let deviceOptions = state.devices.map((d, i) => {
+        const areaContext = state.areas.find(a => a.id === d.areaId);
+        return `${i + 1}. [${areaContext ? areaContext.name : 'N/A'}] ${d.tag}`;
+      }).join("\n");
+
+      const devChoice = prompt(`Reassign this Task to a different Device? Leave blank to keep current.\n\nAvailable Devices:\n${deviceOptions}\n\nEnter the number choice:`);
+
+      if(devChoice && parseInt(devChoice) > 0 && parseInt(devChoice) <= state.devices.length) {
+        const selectedDev = state.devices[parseInt(devChoice) - 1];
+        act.deviceId = selectedDev.id;
+      }
+
+      act.name = newName.trim();
+      if(newStart) act.start = newStart.trim();
+      if(newEnd) act.end = newEnd.trim();
+
+      saveState();
+      renderApp();
+    };
+
+    // --- END EDIT MODULE ---
 
     window.deleteAreaItem = function(id) {
       if(confirm("Delete this Area? All devices and associated activities inside it will be permanently removed.")) {
@@ -340,7 +407,6 @@
 
     function renderApp() {
       try {
-        // Fix target select dropdowns directly
         devAreaSelect.innerHTML = '<option value="">-- Select Area --</option>';
         state.areas.forEach(a => {
           devAreaSelect.innerHTML += `<option value="${a.id}">${a.name}</option>`;
@@ -396,23 +462,29 @@
                   <div>
                     <input class="form-check-input me-2" type="checkbox" ${isDone ? 'checked' : ''} onclick="toggleActivityStatus(${act.id})" id="act-chk-${act.id}">
                     <label class="${isDone ? 'text-decoration-line-through text-muted' : 'fw-bold'}" for="act-chk-${act.id}">${act.name}</label>
-                    <span class="text-muted mx-2">| Windows: ${act.start}</span>
+                    <span class="text-muted mx-2">| Target Window: <strong>${act.start}</strong> to <strong>${act.end}</strong></span>
                   </div>
-                  <button onclick="deleteActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none">❌</button>
+                  <div>
+                    <button onclick="editActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2">✏️ Edit</button>
+                    <button onclick="deleteActivityTask(${act.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none">A❌</button>
+                  </div>
                 </div>
               `;
             });
 
             deviceHtmlCollection += `
               <div class="border rounded p-2 my-2 bg-white shadow-sm">
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1">
                   <div>
                     <span class="badge bg-secondary me-2">${dev.type}</span>
                     <strong class="text-dark">${dev.tag}</strong>
                   </div>
-                  <button onclick="deleteDeviceItem(${dev.id})" class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size:11px;">Remove Tag</button>
+                  <div>
+                    <button onclick="editDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-warning text-decoration-none me-2" style="font-size:12px;">✏️ Modify</button>
+                    <button onclick="deleteDeviceItem(${dev.id})" class="btn btn-link btn-sm p-0 text-danger text-decoration-none" style="font-size:12px;">D❌</button>
+                  </div>
                 </div>
-                <div class="mt-1">${activityTasksHtml || '<em class="text-muted d-block small ms-3">No activity steps assigned to this hardware asset yet.</em>'}</div>
+                <div class="mt-1">${activityTasksHtml || '<em class="text-muted d-block small ms-3">No activity steps assigned.</em>'}</div>
               </div>
             `;
           });
@@ -421,12 +493,15 @@
             <div class="card mb-4 p-3 area-card shadow-sm bg-white">
               <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
                 <h5 class="m-0 text-primary fw-bold">🏢 Area Location: ${area.name}</h5>
-                <button onclick="deleteAreaItem(${area.id})" class="btn btn-sm btn-danger">Delete Area</button>
+                <div>
+                  <button onclick="editAreaItem(${area.id})" class="btn btn-sm btn-outline-warning me-1">Rename Area</button>
+                  <button onclick="deleteAreaItem(${area.id})" class="btn btn-sm btn-danger">Delete Area</button>
+                </div>
               </div>
               <div>${deviceHtmlCollection || '<em class="text-muted small d-block py-2">No hardware device assets registered to this location.</em>'}</div>
-            </div>
-          `;
-        });
+          </div>
+        `;
+      });
 
         typeBreakdownTableBody.innerHTML = '';
         const reportingAreas = Object.keys(matrixReport);
